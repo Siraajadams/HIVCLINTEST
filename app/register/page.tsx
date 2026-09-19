@@ -8,6 +8,7 @@ const initialForm = {
   first_name: "",
   surname: "",
   gender: "",
+  country: "South Africa",
   identity_type: "",
   identity_number: "",
   date_of_birth: "",
@@ -33,8 +34,26 @@ export default function RegisterPage() {
   );
 
   function updateField(field: keyof typeof form, value: string | boolean) {
-    setForm((current) => ({ ...current, [field]: value }));
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === "country" ? { identity_type: "" } : {}),
+    }));
   }
+
+  const identityOptions = form.country === "South Africa"
+    ? ["South African ID", "Passport"]
+    : ["National ID", "Passport"];
+
+  const mobilePlaceholder = {
+    "South Africa": "+27",
+    England: "+44",
+    Zimbabwe: "+263",
+    Botswana: "+267",
+    Eswatini: "+268",
+    Lesotho: "+266",
+    Other: "",
+  }[form.country];
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -90,11 +109,25 @@ export default function RegisterPage() {
             </select>
           </label>
 
+          <label className="field">
+            <span>Country <b aria-hidden="true">*</b></span>
+            <select required value={form.country} onChange={(event) => updateField("country", event.target.value)}>
+              <option>South Africa</option>
+              <option>England</option>
+              <option>Zimbabwe</option>
+              <option>Botswana</option>
+              <option>Eswatini</option>
+              <option>Lesotho</option>
+              <option>Other</option>
+            </select>
+          </label>
+
           <div className="form-grid">
             <label className="field">
               <span>Identification Type <b aria-hidden="true">*</b></span>
               <select required value={form.identity_type} onChange={(event) => updateField("identity_type", event.target.value)}>
-                <option value="">Select type</option><option>South African ID</option><option>Passport</option>
+                <option value="">Select type</option>
+                {identityOptions.map((option) => <option key={option}>{option}</option>)}
               </select>
             </label>
             <label className="field">
@@ -105,7 +138,7 @@ export default function RegisterPage() {
 
           <div className="form-grid">
             <label className="field"><span>Date of Birth <b aria-hidden="true">*</b></span><input required type="date" value={form.date_of_birth} onChange={(event) => updateField("date_of_birth", event.target.value)} /></label>
-            <label className="field"><span>Mobile Number</span><input type="tel" placeholder="+27 82 123 4567" value={form.mobile_number} onChange={(event) => updateField("mobile_number", event.target.value)} /></label>
+            <label className="field"><span>Mobile Number</span><input type="tel" placeholder={mobilePlaceholder} value={form.mobile_number} onChange={(event) => updateField("mobile_number", event.target.value)} /></label>
           </div>
 
           <label className="consent-field">
