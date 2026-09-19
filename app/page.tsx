@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function HomePage() {
   return (
     <main className="home">
@@ -16,9 +18,9 @@ export default function HomePage() {
             Confidential HIV self-testing support and results interpretation,
             designed to help you understand your next step with confidence.
           </p>
-          <button className="start-button" type="button">
+          <Link className="start-button" href="/register">
             Start HIV Self-Test
-          </button>
+          </Link>
           <p className="support-note">Your information stays private.</p>
         </div>
 
