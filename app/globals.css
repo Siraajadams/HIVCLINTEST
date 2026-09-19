@@ -65,5 +65,39 @@ h1 { max-width: 680px; margin: 0; font-family: "Fraunces", Georgia, serif; font-
 .choice-button:hover, .choice-button:focus-visible { border-color: var(--green); background: var(--mint); }
 .important-note { margin: 30px 0 22px; padding: 22px; border-left: 4px solid var(--green); border-radius: 0 14px 14px 0; color: var(--green-dark); background: var(--mint); line-height: 1.55; }
 .result-shell .start-button { margin-top: 28px; }
+.photo-shell { max-width: 780px; }
+.test-info-banner { margin: -8px 0 28px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 14px; color: var(--green-dark); background: var(--mint); }
+.test-info-banner p { margin: 0; font-size: .92rem; }
+.photo-upload-section { display: flex; flex-direction: column; gap: 22px; }
+.upload-options { display: flex; justify-content: center; padding: 28px; border: 1px dashed var(--line); border-radius: 20px; background: var(--white); }
+.upload-buttons { display: flex; gap: 12px; }
+.upload-button { border: 1px solid var(--line); border-radius: 999px; padding: 13px 20px; cursor: pointer; font-weight: 700; }
+.upload-button.primary { border-color: var(--green); color: var(--white); background: var(--green); }
+.upload-button.primary:hover { background: var(--green-dark); }
+.upload-button.secondary { color: var(--green-dark); background: var(--paper); }
+.image-preview-section { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 20px; border: 1px solid var(--line); border-radius: 20px; background: var(--white); }
+.image-preview { width: 100%; max-height: 340px; display: flex; justify-content: center; overflow: hidden; border-radius: 12px; background: var(--paper); }
+.image-preview img, .review-image img { display: block; max-width: 100%; max-height: 340px; object-fit: contain; }
+.instructions-card, .review-card, .manual-choice-section { padding: 26px; border: 1px solid var(--line); border-radius: 20px; background: var(--white); }
+.instructions-card h2, .manual-choice-section h2 { margin: 0 0 16px; font-size: 1.05rem; }
+.instructions-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding-left: 22px; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+.error-message { padding: 13px 16px; border-radius: 10px; color: #8a2e2e; background: #fbeaea; font-size: .88rem; }
+.review-card { display: flex; flex-direction: column; gap: 24px; }
+.review-image { display: flex; justify-content: center; max-height: 340px; overflow: hidden; border-radius: 12px; background: var(--paper); }
+.interpretation-results { display: flex; flex-direction: column; gap: 14px; }
+.interpretation-results h2 { margin: 0 0 4px; font-size: 1.15rem; }
+.result-info { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.result-info p { margin: 0; }
+.result-info .label { color: var(--muted); font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.result-info .value { margin-top: 5px; line-height: 1.5; }
+.result-highlight { color: var(--green-dark); font-size: 1.15rem; font-weight: 700; }
+.confirmation-section { padding-top: 4px; }
+.confirmation-section h3 { margin: 0 0 14px; font-size: 1rem; }
+.confirmation-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.confirmation-buttons .start-button { margin: 0; }
+.uncertain-notice { padding: 16px; border-radius: 12px; color: var(--green-dark); background: var(--mint); line-height: 1.5; }
+.manual-options { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
+.choice-button.large { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; border-radius: 14px; padding: 16px 18px; text-align: left; }
+.choice-button.large span { color: var(--muted); font-size: .82rem; font-weight: 400; }
 @media (max-width: 760px) { .choice-row { flex-direction: column; } .choice-button { width: 100%; } }
 @media (max-width: 760px) { .nav { padding-top: 22px; } .confidential { display: none; } .hero { grid-template-columns: 1fr; gap: 48px; padding: 52px 0 64px; } .info-card { padding: 30px; } .flow-shell { padding-top: 22px; } .form-grid { grid-template-columns: 1fr; gap: 22px; } .registration-form { padding: 24px; } .continue-button { width: 100%; text-align: center; } }
