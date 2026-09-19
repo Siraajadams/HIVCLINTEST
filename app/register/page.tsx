@@ -55,17 +55,23 @@ export default function RegisterPage() {
     Other: "",
   }[form.country];
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canContinue) return;
 
+    const response = await fetch("/api/patients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...form, source: "manual" }),
+    });
+
+    if (!response.ok) return;
+
+    const { patient_id } = await response.json();
+    sessionStorage.setItem("patient_id", patient_id);
     sessionStorage.setItem(
       "hivclintest_registration",
-      JSON.stringify({
-        ...form,
-        source: "manual",
-        created_at: new Date().toISOString(),
-      }),
+      JSON.stringify({ ...form, source: "manual", created_at: new Date().toISOString() }),
     );
     router.push("/test");
   }

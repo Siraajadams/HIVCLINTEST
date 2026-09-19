@@ -13,8 +13,25 @@ const tests = [
 export default function TestPage() {
   const router = useRouter();
   const [selected, setSelected] = useState("");
-  const continueFlow = () => {
-    if (!selected) return;
+  const continueFlow = async () => {
+    const patientId = sessionStorage.getItem("patient_id");
+    if (!selected || !patientId) return;
+
+    const selectedTest = tests.find((test) => test.value === selected);
+    const response = await fetch("/api/tests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        patient_id: patientId,
+        test_type: selected,
+        sample_type: selectedTest?.sample || null,
+      }),
+    });
+
+    if (!response.ok) return;
+
+    const { self_test_id } = await response.json();
+    sessionStorage.setItem("self_test_id", self_test_id);
     sessionStorage.setItem("selected_test", selected);
     router.push(selected === "mylan_atomo" || selected === "oraquick" ? "/test/photo" : "/test/identify");
   };
