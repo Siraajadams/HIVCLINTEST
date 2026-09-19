@@ -1,0 +1,5 @@
+import Link from "next/link";
+
+export default function IdentifyPage() {
+  return <main className="flow-page"><header className="nav flow-nav"><Link className="brand" href="/"><span className="brand-mark">+</span> HIVClinTest</Link><div className="confidential">Private and confidential</div></header><section className="flow-shell test-shell"><Link className="back-link" href="/test">Back</Link><div className="flow-heading"><p className="eyebrow">Step 2 of 4 — Test Type</p><h1>Not sure which HIV self-test you are using?</h1><p className="flow-subtitle">Check the test packaging or instructions to identify which sample it uses.</p></div><div className="test-options"><Link className="test-card" href="/test/mylan-atomo"><span className="test-radio" aria-hidden="true">→</span><span><strong>Blood / finger-prick test</strong><small>Uses a small drop of blood from your finger.</small></span></Link><Link className="test-card" href="/test/oraquick"><span className="test-radio" aria-hidden="true">→</span><span><strong>Oral-fluid / mouth-swab test</strong><small>Uses a sample collected from your mouth.</small></span></Link></div></section></main>;
+}

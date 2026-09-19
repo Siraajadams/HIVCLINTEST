@@ -55,4 +55,15 @@ h1 { max-width: 680px; margin: 0; font-family: "Fraunces", Georgia, serif; font-
 .test-radio { display: grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 50%; color: var(--white); background: var(--white); font-size: 0.75rem; }
 .test-card.selected .test-radio { border-color: var(--green); background: var(--green); }
 .screening-note { margin: 28px 0 0; color: var(--muted); font-size: 0.82rem; line-height: 1.6; }
+.result-card { min-height: 88px; }
+.result-shell h1 { max-width: 680px; }
+.result-lead { margin: 28px 0 14px; font-size: 1.2rem; font-weight: 700; line-height: 1.5; }
+.question-card { margin-top: 34px; padding: 26px; border: 1px solid var(--line); border-radius: 20px; background: var(--white); }
+.question-card h2 { margin: 0 0 20px; font-size: 1.05rem; }
+.choice-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.choice-button { border: 1px solid var(--line); border-radius: 999px; padding: 12px 18px; color: var(--green-dark); background: var(--paper); cursor: pointer; font-weight: 700; }
+.choice-button:hover, .choice-button:focus-visible { border-color: var(--green); background: var(--mint); }
+.important-note { margin: 30px 0 22px; padding: 22px; border-left: 4px solid var(--green); border-radius: 0 14px 14px 0; color: var(--green-dark); background: var(--mint); line-height: 1.55; }
+.result-shell .start-button { margin-top: 28px; }
+@media (max-width: 760px) { .choice-row { flex-direction: column; } .choice-button { width: 100%; } }
 @media (max-width: 760px) { .nav { padding-top: 22px; } .confidential { display: none; } .hero { grid-template-columns: 1fr; gap: 48px; padding: 52px 0 64px; } .info-card { padding: 30px; } .flow-shell { padding-top: 22px; } .form-grid { grid-template-columns: 1fr; gap: 22px; } .registration-form { padding: 24px; } .continue-button { width: 100%; text-align: center; } }
