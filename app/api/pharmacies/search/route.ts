@@ -23,9 +23,9 @@ export async function GET(request: NextRequest) {
     const purpose =
       searchParams.get("purpose")?.trim() || "prep";
 
-    // -------------------------------------------------------
+    // =======================================================
     // VALIDATE LOCATION
-    // -------------------------------------------------------
+    // =======================================================
 
     if (!city && !suburb) {
       return NextResponse.json(
@@ -37,15 +37,22 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // -------------------------------------------------------
+    // =======================================================
     // SUPABASE ENVIRONMENT VARIABLES
-    // -------------------------------------------------------
+    // =======================================================
 
     const supabaseUrl =
       process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 
+    /*
+      IMPORTANT:
+      Remove accidental spaces/newlines from the Vercel secret.
+
+      SUPABASE_SECRET_KEY must remain SERVER SIDE.
+      Do NOT rename it NEXT_PUBLIC_SUPABASE_SECRET_KEY.
+    */
     const supabaseKey =
-      process.env.SUPABASE_SECRET_KEY?.trim();
+      process.env.SUPABASE_SECRET_KEY?.replace(/\s+/g, "");
 
     if (!supabaseUrl) {
       console.error(
@@ -56,7 +63,7 @@ export async function GET(request: NextRequest) {
         {
           success: false,
           error:
-            "NEXT_PUBLIC_SUPABASE_URL is not configured.",
+            "Pharmacy database URL is not configured.",
         },
         { status: 500 }
       );
@@ -71,7 +78,7 @@ export async function GET(request: NextRequest) {
         {
           success: false,
           error:
-            "SUPABASE_SECRET_KEY is not configured.",
+            "Pharmacy database authentication is not configured.",
         },
         { status: 500 }
       );
@@ -82,11 +89,11 @@ export async function GET(request: NextRequest) {
     console.log("Suburb:", suburb);
     console.log("Purpose:", purpose);
 
-    // Never log the secret key.
+    // Never console.log supabaseKey.
 
-    // -------------------------------------------------------
-    // SAFE PUBLIC FIELDS ONLY
-    // -------------------------------------------------------
+    // =======================================================
+    // SAFE PATIENT-FACING FIELDS
+    // =======================================================
 
     const selectFields = [
       "practice_no",
@@ -96,9 +103,9 @@ export async function GET(request: NextRequest) {
       "practice_full_address",
     ].join(",");
 
-    // -------------------------------------------------------
-    // BUILD POSTGREST QUERY
-    // -------------------------------------------------------
+    // =======================================================
+    // BUILD SUPABASE QUERY
+    // =======================================================
 
     const query = new URLSearchParams();
 
@@ -106,6 +113,10 @@ export async function GET(request: NextRequest) {
     query.set("limit", "100");
 
     const filters: string[] = [];
+
+    /*
+      Search suburb against both address and practice name.
+    */
 
     if (suburb) {
       filters.push(
@@ -116,6 +127,10 @@ export async function GET(request: NextRequest) {
         `practice_name.ilike.*${suburb}*`
       );
     }
+
+    /*
+      Search city against both address and practice name.
+    */
 
     if (city) {
       filters.push(
@@ -141,9 +156,9 @@ export async function GET(request: NextRequest) {
       "Searching Supabase preppharmacy table"
     );
 
-    // -------------------------------------------------------
+    // =======================================================
     // CALL SUPABASE
-    // -------------------------------------------------------
+    // =======================================================
 
     const response = await fetch(
       supabaseEndpoint,
@@ -168,9 +183,9 @@ export async function GET(request: NextRequest) {
       response.status
     );
 
-    // -------------------------------------------------------
+    // =======================================================
     // SUPABASE ERROR
-    // -------------------------------------------------------
+    // =======================================================
 
     if (!response.ok) {
       console.error(
@@ -178,21 +193,30 @@ export async function GET(request: NextRequest) {
         responseText
       );
 
+      /*
+        We return the Supabase database response here because
+        it can tell us about missing tables/columns/query errors.
+
+        We DO NOT return the secret key.
+      */
+
       return NextResponse.json(
         {
           success: false,
           error:
             "Supabase rejected the pharmacy search.",
-          supabaseStatus: response.status,
-          details: responseText,
+          supabaseStatus:
+            response.status,
+          databaseError:
+            responseText,
         },
         { status: 500 }
       );
     }
 
-    // -------------------------------------------------------
+    // =======================================================
     // PARSE RESPONSE
-    // -------------------------------------------------------
+    // =======================================================
 
     let rows: Pharmacy[];
 
@@ -200,21 +224,24 @@ export async function GET(request: NextRequest) {
       rows = JSON.parse(responseText);
     } catch {
       console.error(
-        "Invalid Supabase JSON:",
-        responseText
+        "Invalid JSON returned by Supabase"
       );
 
       return NextResponse.json(
         {
           success: false,
           error:
-            "Supabase returned an invalid response.",
+            "The pharmacy database returned an invalid response.",
         },
         { status: 500 }
       );
     }
 
     if (!Array.isArray(rows)) {
+      console.error(
+        "Unexpected Supabase response format"
+      );
+
       return NextResponse.json(
         {
           success: false,
@@ -225,17 +252,26 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // -------------------------------------------------------
+    // =======================================================
     // REMOVE DUPLICATE PRACTICES
-    // -------------------------------------------------------
+    // =======================================================
 
     const uniquePharmacies =
       new Map<string, Pharmacy>();
 
     for (const pharmacy of rows) {
+      const practiceNumber =
+        pharmacy.practice_no?.toString().trim();
+
+      const practiceName =
+        pharmacy.practice_name?.trim() || "";
+
+      const practiceAddress =
+        pharmacy.practice_full_address?.trim() || "";
+
       const key =
-        pharmacy.practice_no?.toString() ||
-        `${pharmacy.practice_name || ""}-${pharmacy.practice_full_address || ""}`;
+        practiceNumber ||
+        `${practiceName}-${practiceAddress}`;
 
       if (!uniquePharmacies.has(key)) {
         uniquePharmacies.set(
@@ -244,6 +280,10 @@ export async function GET(request: NextRequest) {
         );
       }
     }
+
+    // =======================================================
+    // FINAL RESULTS
+    // =======================================================
 
     const pharmacies =
       Array.from(
@@ -255,9 +295,9 @@ export async function GET(request: NextRequest) {
       pharmacies.length
     );
 
-    // -------------------------------------------------------
+    // =======================================================
     // SUCCESS
-    // -------------------------------------------------------
+    // =======================================================
 
     return NextResponse.json({
       success: true,
@@ -274,6 +314,14 @@ export async function GET(request: NextRequest) {
       pharmacies,
     });
   } catch (error) {
+    /*
+      Log the error server-side only.
+
+      Do NOT send error.message back to the browser because
+      some runtime errors can contain environment-variable
+      values, as happened with the malformed Supabase key.
+    */
+
     console.error(
       "PHARMACY SEARCH API CRASH:",
       error
@@ -284,10 +332,6 @@ export async function GET(request: NextRequest) {
         success: false,
         error:
           "Pharmacy search API crashed.",
-        details:
-          error instanceof Error
-            ? error.message
-            : String(error),
       },
       { status: 500 }
     );
