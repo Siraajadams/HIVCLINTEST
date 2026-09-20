@@ -2,25 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-type PharmacyRow = {
-  practice_no: string | number | null;
-  practice_name: string | null;
-  practice_contact_no: string | null;
-  practice_province: string | null;
-  practice_full_address: string | null;
-};
-
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
+    const city =
+      request.nextUrl.searchParams.get("city")?.trim() || "";
 
-    const city = searchParams.get("city")?.trim() || "";
-    const suburb = searchParams.get("suburb")?.trim() || "";
-    const purpose = searchParams.get("purpose")?.trim() || "prep";
+    const suburb =
+      request.nextUrl.searchParams.get("suburb")?.trim() || "";
 
     if (!city && !suburb) {
       return NextResponse.json(
         {
+          success: false,
           error: "Please enter a city, town or suburb.",
         },
         { status: 400 }
@@ -33,64 +26,59 @@ export async function GET(request: NextRequest) {
     const supabaseKey =
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-    if (!supabaseUrl || !supabaseKey) {
-      console.error(
-        "Missing Supabase environment variables"
-      );
+    console.log("PHARMACY SEARCH START");
+    console.log("City:", city);
+    console.log("Suburb:", suburb);
+    console.log(
+      "Supabase URL configured:",
+      Boolean(supabaseUrl)
+    );
+    console.log(
+      "Supabase key configured:",
+      Boolean(supabaseKey)
+    );
 
+    if (!supabaseUrl) {
       return NextResponse.json(
         {
-          error:
-            "Supabase environment variables are missing.",
+          success: false,
+          error: "NEXT_PUBLIC_SUPABASE_URL is not configured in Vercel.",
         },
         { status: 500 }
       );
     }
 
-    /*
-     * Only request fields that are appropriate
-     * for the patient-facing directory.
-     *
-     * Do NOT expose:
-     * - ID number
-     * - pharmacist personal mobile
-     * - personal email
-     * - professional council number
-     */
+    if (!supabaseKey) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY is not configured in Vercel.",
+        },
+        { status: 500 }
+      );
+    }
 
-    const select = [
-      "practice_no",
-      "practice_name",
-      "practice_contact_no",
-      "practice_province",
-      "practice_full_address",
-    ].join(",");
+    const selectFields =
+      "practice_no,practice_name,practice_contact_no,practice_province,practice_full_address";
+
+    /*
+      Build the Supabase REST query using URLSearchParams
+      instead of manually encoding the PostgREST expression.
+    */
+
+    const query = new URLSearchParams();
+
+    query.set("select", selectFields);
+    query.set("limit", "50");
 
     const filters: string[] = [];
-
-    /*
-     * Search the practice address.
-     */
 
     if (suburb) {
       filters.push(
         `practice_full_address.ilike.*${suburb}*`
       );
-    }
 
-    if (city) {
-      filters.push(
-        `practice_full_address.ilike.*${city}*`
-      );
-    }
-
-    /*
-     * Also allow matching the practice name.
-     * This can help where the location appears
-     * in the pharmacy/practice name.
-     */
-
-    if (suburb) {
       filters.push(
         `practice_name.ilike.*${suburb}*`
       );
@@ -98,134 +86,140 @@ export async function GET(request: NextRequest) {
 
     if (city) {
       filters.push(
+        `practice_full_address.ilike.*${city}*`
+      );
+
+      filters.push(
         `practice_name.ilike.*${city}*`
       );
     }
 
-    let url =
-      `${supabaseUrl}/rest/v1/preppharmacy` +
-      `?select=${encodeURIComponent(select)}`;
-
     if (filters.length > 0) {
-      url +=
-        `&or=(${encodeURIComponent(
-          filters.join(",")
-        )})`;
+      query.set(
+        "or",
+        `(${filters.join(",")})`
+      );
     }
 
-    url += "&limit=100";
+    const supabaseEndpoint =
+      `${supabaseUrl}/rest/v1/preppharmacy?${query.toString()}`;
 
-    const response = await fetch(url, {
-      method: "GET",
+    console.log(
+      "Calling Supabase preppharmacy table"
+    );
 
-      headers: {
-        apikey: supabaseKey,
-        Authorization: `Bearer ${supabaseKey}`,
-        Accept: "application/json",
-      },
+    const response = await fetch(
+      supabaseEndpoint,
+      {
+        method: "GET",
 
-      cache: "no-store",
-    });
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          Accept: "application/json",
+        },
+
+        cache: "no-store",
+      }
+    );
 
     const responseText =
       await response.text();
 
+    console.log(
+      "Supabase response status:",
+      response.status
+    );
+
     if (!response.ok) {
       console.error(
-        "Supabase pharmacy search error:",
+        "SUPABASE ERROR:",
         responseText
       );
 
       return NextResponse.json(
         {
+          success: false,
           error:
-            "Unable to search the pharmacy database.",
-          details: responseText,
+            "Supabase rejected the pharmacy search.",
+          supabaseStatus:
+            response.status,
+          details:
+            responseText,
         },
         {
-          status: response.status,
+          status: 500,
         }
       );
     }
 
-    let rows: PharmacyRow[] = [];
+    let rows: any[] = [];
 
     try {
       rows = JSON.parse(responseText);
     } catch {
-      console.error(
-        "Invalid Supabase response:",
-        responseText
-      );
-
       return NextResponse.json(
         {
+          success: false,
           error:
-            "Invalid response from pharmacy database.",
+            "Supabase returned invalid JSON.",
+          details:
+            responseText,
         },
         { status: 500 }
       );
     }
 
     /*
-     * Remove duplicate pharmacies.
-     *
-     * Your imported dataset can contain more
-     * than one healthcare professional linked
-     * to the same practice.
-     */
+      Remove duplicate pharmacies because several
+      professionals may belong to the same practice.
+    */
 
-    const uniquePharmacies =
-      new Map<string, PharmacyRow>();
+    const unique =
+      new Map<string, any>();
 
-    for (const pharmacy of rows) {
+    for (const row of rows) {
       const key =
-        pharmacy.practice_no?.toString() ||
-        `${pharmacy.practice_name || ""}-${
-          pharmacy.practice_full_address || ""
-        }`;
+        row.practice_no?.toString() ||
+        `${row.practice_name || ""}-${row.practice_full_address || ""}`;
 
-      if (!uniquePharmacies.has(key)) {
-        uniquePharmacies.set(
-          key,
-          pharmacy
-        );
+      if (!unique.has(key)) {
+        unique.set(key, row);
       }
     }
 
     const pharmacies =
-      Array.from(
-        uniquePharmacies.values()
-      ).slice(0, 30);
+      Array.from(unique.values());
+
+    console.log(
+      "Pharmacies returned:",
+      pharmacies.length
+    );
 
     return NextResponse.json({
       success: true,
-
-      purpose,
-
+      count: pharmacies.length,
       location: {
         city,
         suburb,
       },
-
-      count: pharmacies.length,
-
       pharmacies,
     });
   } catch (error) {
     console.error(
-      "Pharmacy search API error:",
+      "PHARMACY SEARCH CRASH:",
       error
     );
 
     return NextResponse.json(
       {
-        error: "Pharmacy search failed.",
-
+        success: false,
+        error:
+          "Pharmacy search API crashed.",
         details:
           error instanceof Error
             ? error.message
-            : "Unknown error",
+            : String(error),
       },
       { status: 500 }
     );
