@@ -2,13 +2,30 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
+type Pharmacy = {
+  practice_no: string | number | null;
+  practice_name: string | null;
+  practice_contact_no: string | null;
+  practice_province: string | null;
+  practice_full_address: string | null;
+};
+
 export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+
     const city =
-      request.nextUrl.searchParams.get("city")?.trim() || "";
+      searchParams.get("city")?.trim() || "";
 
     const suburb =
-      request.nextUrl.searchParams.get("suburb")?.trim() || "";
+      searchParams.get("suburb")?.trim() || "";
+
+    const purpose =
+      searchParams.get("purpose")?.trim() || "prep";
+
+    // -------------------------------------------------------
+    // VALIDATE LOCATION
+    // -------------------------------------------------------
 
     if (!city && !suburb) {
       return NextResponse.json(
@@ -20,60 +37,73 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+    // -------------------------------------------------------
+    // SUPABASE ENVIRONMENT VARIABLES
+    // -------------------------------------------------------
 
-const supabaseKey =
-  process.env.SUPABASE_SECRET_KEY?.trim();
+    const supabaseUrl =
+      process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 
     const supabaseKey =
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    console.log("PHARMACY SEARCH START");
-    console.log("City:", city);
-    console.log("Suburb:", suburb);
-    console.log(
-      "Supabase URL configured:",
-      Boolean(supabaseUrl)
-    );
-    console.log(
-      "Supabase key configured:",
-      Boolean(supabaseKey)
-    );
+      process.env.SUPABASE_SECRET_KEY?.trim();
 
     if (!supabaseUrl) {
+      console.error(
+        "NEXT_PUBLIC_SUPABASE_URL is missing"
+      );
+
       return NextResponse.json(
         {
           success: false,
-          error: "NEXT_PUBLIC_SUPABASE_URL is not configured in Vercel.",
+          error:
+            "NEXT_PUBLIC_SUPABASE_URL is not configured.",
         },
         { status: 500 }
       );
     }
 
     if (!supabaseKey) {
+      console.error(
+        "SUPABASE_SECRET_KEY is missing"
+      );
+
       return NextResponse.json(
         {
           success: false,
           error:
-            "NEXT_PUBLIC_SUPABASE_ANON_KEY is not configured in Vercel.",
+            "SUPABASE_SECRET_KEY is not configured.",
         },
         { status: 500 }
       );
     }
 
-    const selectFields =
-      "practice_no,practice_name,practice_contact_no,practice_province,practice_full_address";
+    console.log("PHARMACY SEARCH START");
+    console.log("City:", city);
+    console.log("Suburb:", suburb);
+    console.log("Purpose:", purpose);
 
-    /*
-      Build the Supabase REST query using URLSearchParams
-      instead of manually encoding the PostgREST expression.
-    */
+    // Never log the secret key.
+
+    // -------------------------------------------------------
+    // SAFE PUBLIC FIELDS ONLY
+    // -------------------------------------------------------
+
+    const selectFields = [
+      "practice_no",
+      "practice_name",
+      "practice_contact_no",
+      "practice_province",
+      "practice_full_address",
+    ].join(",");
+
+    // -------------------------------------------------------
+    // BUILD POSTGREST QUERY
+    // -------------------------------------------------------
 
     const query = new URLSearchParams();
 
     query.set("select", selectFields);
-    query.set("limit", "50");
+    query.set("limit", "100");
 
     const filters: string[] = [];
 
@@ -108,8 +138,12 @@ const supabaseKey =
       `${supabaseUrl}/rest/v1/preppharmacy?${query.toString()}`;
 
     console.log(
-      "Calling Supabase preppharmacy table"
+      "Searching Supabase preppharmacy table"
     );
+
+    // -------------------------------------------------------
+    // CALL SUPABASE
+    // -------------------------------------------------------
 
     const response = await fetch(
       supabaseEndpoint,
@@ -134,9 +168,13 @@ const supabaseKey =
       response.status
     );
 
+    // -------------------------------------------------------
+    // SUPABASE ERROR
+    // -------------------------------------------------------
+
     if (!response.ok) {
       console.error(
-        "SUPABASE ERROR:",
+        "SUPABASE PHARMACY ERROR:",
         responseText
       );
 
@@ -145,72 +183,99 @@ const supabaseKey =
           success: false,
           error:
             "Supabase rejected the pharmacy search.",
-          supabaseStatus:
-            response.status,
-          details:
-            responseText,
-        },
-        {
-          status: 500,
-        }
-      );
-    }
-
-    let rows: any[] = [];
-
-    try {
-      rows = JSON.parse(responseText);
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Supabase returned invalid JSON.",
-          details:
-            responseText,
+          supabaseStatus: response.status,
+          details: responseText,
         },
         { status: 500 }
       );
     }
 
-    /*
-      Remove duplicate pharmacies because several
-      professionals may belong to the same practice.
-    */
+    // -------------------------------------------------------
+    // PARSE RESPONSE
+    // -------------------------------------------------------
 
-    const unique =
-      new Map<string, any>();
+    let rows: Pharmacy[];
 
-    for (const row of rows) {
+    try {
+      rows = JSON.parse(responseText);
+    } catch {
+      console.error(
+        "Invalid Supabase JSON:",
+        responseText
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Supabase returned an invalid response.",
+        },
+        { status: 500 }
+      );
+    }
+
+    if (!Array.isArray(rows)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Unexpected pharmacy database response.",
+        },
+        { status: 500 }
+      );
+    }
+
+    // -------------------------------------------------------
+    // REMOVE DUPLICATE PRACTICES
+    // -------------------------------------------------------
+
+    const uniquePharmacies =
+      new Map<string, Pharmacy>();
+
+    for (const pharmacy of rows) {
       const key =
-        row.practice_no?.toString() ||
-        `${row.practice_name || ""}-${row.practice_full_address || ""}`;
+        pharmacy.practice_no?.toString() ||
+        `${pharmacy.practice_name || ""}-${pharmacy.practice_full_address || ""}`;
 
-      if (!unique.has(key)) {
-        unique.set(key, row);
+      if (!uniquePharmacies.has(key)) {
+        uniquePharmacies.set(
+          key,
+          pharmacy
+        );
       }
     }
 
     const pharmacies =
-      Array.from(unique.values());
+      Array.from(
+        uniquePharmacies.values()
+      ).slice(0, 30);
 
     console.log(
-      "Pharmacies returned:",
+      "Pharmacies found:",
       pharmacies.length
     );
 
+    // -------------------------------------------------------
+    // SUCCESS
+    // -------------------------------------------------------
+
     return NextResponse.json({
       success: true,
-      count: pharmacies.length,
+
+      purpose,
+
       location: {
         city,
         suburb,
       },
+
+      count: pharmacies.length,
+
       pharmacies,
     });
   } catch (error) {
     console.error(
-      "PHARMACY SEARCH CRASH:",
+      "PHARMACY SEARCH API CRASH:",
       error
     );
 
