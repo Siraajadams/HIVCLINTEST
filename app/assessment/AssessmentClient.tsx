@@ -21,6 +21,14 @@ type SymptomState = {
   none: boolean;
 };
 
+type Pharmacy = {
+  practice_no: string | number | null;
+  practice_name: string | null;
+  practice_contact_no: string | null;
+  practice_province: string | null;
+  practice_full_address: string | null;
+};
+
 export default function AssessmentClient() {
   const [step, setStep] = useState<Step>("exposure");
   const [exposureTiming, setExposureTiming] = useState("");
@@ -48,6 +56,12 @@ export default function AssessmentClient() {
   const [suburb, setSuburb] = useState("");
 
   const [searchMessage, setSearchMessage] = useState("");
+  const [searchError, setSearchError] = useState("");
+  const [searching, setSearching] = useState(false);
+
+  const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
+  const [selectedPharmacy, setSelectedPharmacy] =
+    useState<Pharmacy | null>(null);
 
   const pepUrgent = [
     "within24",
@@ -55,13 +69,12 @@ export default function AssessmentClient() {
     "48to72",
   ].includes(exposureTiming);
 
-  // -------------------------------------------------------
-  // RISK MULTI-SELECTION
-  // -------------------------------------------------------
+  // =========================================================
+  // RISK
+  // =========================================================
 
   function toggleRisk(key: keyof RiskState) {
     setRisk((prev) => {
-      // "None of the above" clears everything else
       if (key === "none") {
         const selectingNone = !prev.none;
 
@@ -75,7 +88,6 @@ export default function AssessmentClient() {
         };
       }
 
-      // Selecting any actual risk automatically removes "none"
       return {
         ...prev,
         [key]: !prev[key],
@@ -84,9 +96,9 @@ export default function AssessmentClient() {
     });
   }
 
-  // -------------------------------------------------------
-  // SYMPTOM MULTI-SELECTION
-  // -------------------------------------------------------
+  // =========================================================
+  // SYMPTOMS
+  // =========================================================
 
   function toggleSymptom(key: keyof SymptomState) {
     setSymptoms((prev) => {
@@ -118,14 +130,139 @@ export default function AssessmentClient() {
     ([key, value]) => key !== "none" && value
   ).length;
 
-  const riskAnswered = selectedRiskCount > 0 || risk.none;
+  const riskAnswered =
+    selectedRiskCount > 0 || risk.none;
 
   const symptomsAnswered =
     selectedSymptomCount > 0 || symptoms.none;
 
-  // -------------------------------------------------------
-  // REUSABLE CHOICE BUTTON
-  // -------------------------------------------------------
+  // =========================================================
+  // PHARMACY SEARCH
+  // =========================================================
+
+  async function searchPharmacies() {
+    const cleanCity = city.trim();
+    const cleanSuburb = suburb.trim();
+
+    if (!cleanCity && !cleanSuburb) {
+      setSearchError(
+        "Please enter a city, town or suburb."
+      );
+      return;
+    }
+
+    setSearching(true);
+    setSearchError("");
+    setSearchMessage("");
+    setPharmacies([]);
+    setSelectedPharmacy(null);
+
+    try {
+      const params = new URLSearchParams();
+
+      if (cleanCity) {
+        params.set("city", cleanCity);
+      }
+
+      if (cleanSuburb) {
+        params.set("suburb", cleanSuburb);
+      }
+
+      params.set("purpose", "prep");
+
+      const response = await fetch(
+        `/api/pharmacies/search?${params.toString()}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      const rawText = await response.text();
+
+      let result: {
+        success?: boolean;
+        count?: number;
+        pharmacies?: Pharmacy[];
+        error?: string;
+        details?: string;
+      };
+
+      try {
+        result = JSON.parse(rawText);
+      } catch {
+        throw new Error(
+          "The pharmacy search service returned an invalid response."
+        );
+      }
+
+      if (!response.ok) {
+        console.error(
+          "Pharmacy API error:",
+          result
+        );
+
+        throw new Error(
+          result.error ||
+            result.details ||
+            "Unable to search pharmacies."
+        );
+      }
+
+      const results =
+        result.pharmacies || [];
+
+      setPharmacies(results);
+
+      if (results.length === 0) {
+        setSearchMessage(
+          "No participating pharmacies were found for this location. Try another nearby suburb or search using your city."
+        );
+      } else {
+        setSearchMessage(
+          `${results.length} participating ${
+            results.length === 1
+              ? "pharmacy"
+              : "pharmacies"
+          } found.`
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Pharmacy search failed:",
+        error
+      );
+
+      setSearchError(
+        error instanceof Error
+          ? error.message
+          : "Unable to search pharmacies."
+      );
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  // =========================================================
+  // SELECT PHARMACY
+  // =========================================================
+
+  function selectPharmacy(pharmacy: Pharmacy) {
+    setSelectedPharmacy(pharmacy);
+
+    setSearchMessage(
+      `${pharmacy.practice_name || "Pharmacy"} selected.`
+    );
+
+    console.log(
+      "Selected pharmacy:",
+      pharmacy
+    );
+  }
+
+  // =========================================================
+  // CHOICE BUTTON
+  // =========================================================
 
   function ChoiceButton({
     selected,
@@ -199,30 +336,44 @@ export default function AssessmentClient() {
 
       {step === "exposure" && (
         <>
-          <p className="eyebrow">HIV assessment</p>
+          <p className="eyebrow">
+            HIV assessment
+          </p>
 
-          <h1>When was the possible HIV exposure?</h1>
+          <h1>
+            When was the possible HIV exposure?
+          </h1>
 
           <p className="flow-subtitle">
-            This helps identify whether you may need urgent
-            assessment for PEP.
+            This helps identify whether you may need
+            urgent assessment for PEP.
           </p>
 
           <div className="question-card">
             <div className="choice-column">
               {[
-                ["within24", "Within the last 24 hours"],
+                [
+                  "within24",
+                  "Within the last 24 hours",
+                ],
                 ["24to48", "24–48 hours ago"],
                 ["48to72", "48–72 hours ago"],
                 ["3to7", "3–7 days ago"],
                 ["8to30", "8–30 days ago"],
-                ["over30", "More than 30 days ago"],
+                [
+                  "over30",
+                  "More than 30 days ago",
+                ],
                 ["unsure", "I'm not sure"],
               ].map(([value, label]) => (
                 <ChoiceButton
                   key={value}
-                  selected={exposureTiming === value}
-                  onClick={() => setExposureTiming(value)}
+                  selected={
+                    exposureTiming === value
+                  }
+                  onClick={() =>
+                    setExposureTiming(value)
+                  }
                 >
                   {label}
                 </ChoiceButton>
@@ -232,20 +383,24 @@ export default function AssessmentClient() {
 
           {pepUrgent && (
             <div className="question-card">
-              <p className="eyebrow">URGENT</p>
+              <p className="eyebrow">
+                URGENT
+              </p>
 
               <h2>You may need PEP</h2>
 
               <p>
-                PEP is medication used after a possible HIV
-                exposure. It should be assessed as soon as
-                possible and started within 72 hours when
+                PEP is medication used after a
+                possible HIV exposure. It should be
+                assessed as soon as possible and
+                started within 72 hours when
                 clinically appropriate.
               </p>
 
               <p>
-                Please seek urgent assessment from a healthcare
-                professional or healthcare facility.
+                Please seek urgent assessment from a
+                healthcare professional or healthcare
+                facility.
               </p>
             </div>
           )}
@@ -262,18 +417,23 @@ export default function AssessmentClient() {
       )}
 
       {/* =====================================================
-          STEP 2 — SEXUAL HEALTH / RISKS
+          STEP 2 — RISK
       ====================================================== */}
 
       {step === "risk" && (
         <>
-          <p className="eyebrow">HIV prevention</p>
+          <p className="eyebrow">
+            HIV prevention
+          </p>
 
-          <h1>A few questions about your sexual health</h1>
+          <h1>
+            A few questions about your sexual health
+          </h1>
 
           <p className="flow-subtitle">
-            Select all that have applied to you during the
-            last 6 months. You can select more than one.
+            Select all that have applied to you during
+            the last 6 months. You can select more
+            than one.
           </p>
 
           <div className="question-card">
@@ -311,7 +471,8 @@ export default function AssessmentClient() {
                   toggleRisk("partnerUnknown")
                 }
               >
-                Unsure of a sexual partner&apos;s HIV status
+                Unsure of a sexual partner&apos;s HIV
+                status
               </ChoiceButton>
 
               <ChoiceButton
@@ -325,14 +486,17 @@ export default function AssessmentClient() {
 
               <div
                 style={{
-                  borderTop: "1px solid #e5e5e5",
+                  borderTop:
+                    "1px solid #e5e5e5",
                   margin: "8px 0",
                 }}
               />
 
               <ChoiceButton
                 selected={risk.none}
-                onClick={() => toggleRisk("none")}
+                onClick={() =>
+                  toggleRisk("none")
+                }
               >
                 None of the above
               </ChoiceButton>
@@ -349,7 +513,10 @@ export default function AssessmentClient() {
                 }}
               >
                 ✓ {selectedRiskCount} option
-                {selectedRiskCount === 1 ? "" : "s"} selected
+                {selectedRiskCount === 1
+                  ? ""
+                  : "s"}{" "}
+                selected
               </p>
             )}
           </div>
@@ -364,7 +531,9 @@ export default function AssessmentClient() {
             <button
               type="button"
               className="choice-button"
-              onClick={() => setStep("exposure")}
+              onClick={() =>
+                setStep("exposure")
+              }
             >
               ← Back
             </button>
@@ -373,7 +542,9 @@ export default function AssessmentClient() {
               type="button"
               className="start-button"
               disabled={!riskAnswered}
-              onClick={() => setStep("symptoms")}
+              onClick={() =>
+                setStep("symptoms")
+              }
             >
               Continue
             </button>
@@ -382,35 +553,44 @@ export default function AssessmentClient() {
       )}
 
       {/* =====================================================
-          STEP 3 — STI SYMPTOMS
+          STEP 3 — SYMPTOMS
       ====================================================== */}
 
       {step === "symptoms" && (
         <>
-          <p className="eyebrow">STI screening</p>
+          <p className="eyebrow">
+            STI screening
+          </p>
 
           <h1>
-            Do you currently have any of these symptoms?
+            Do you currently have any of these
+            symptoms?
           </h1>
 
           <p className="flow-subtitle">
-            Select all that apply. You can select more than
-            one symptom.
+            Select all that apply. You can select
+            more than one symptom.
           </p>
 
           <div className="question-card">
             <div className="choice-column">
               <ChoiceButton
-                selected={symptoms.genitalSore}
+                selected={
+                  symptoms.genitalSore
+                }
                 onClick={() =>
-                  toggleSymptom("genitalSore")
+                  toggleSymptom(
+                    "genitalSore"
+                  )
                 }
               >
                 Genital sore or ulcer
               </ChoiceButton>
 
               <ChoiceButton
-                selected={symptoms.discharge}
+                selected={
+                  symptoms.discharge
+                }
                 onClick={() =>
                   toggleSymptom("discharge")
                 }
@@ -419,18 +599,26 @@ export default function AssessmentClient() {
               </ChoiceButton>
 
               <ChoiceButton
-                selected={symptoms.painfulUrination}
+                selected={
+                  symptoms.painfulUrination
+                }
                 onClick={() =>
-                  toggleSymptom("painfulUrination")
+                  toggleSymptom(
+                    "painfulUrination"
+                  )
                 }
               >
                 Pain or burning when urinating
               </ChoiceButton>
 
               <ChoiceButton
-                selected={symptoms.genitalRash}
+                selected={
+                  symptoms.genitalRash
+                }
                 onClick={() =>
-                  toggleSymptom("genitalRash")
+                  toggleSymptom(
+                    "genitalRash"
+                  )
                 }
               >
                 Genital rash
@@ -438,7 +626,8 @@ export default function AssessmentClient() {
 
               <div
                 style={{
-                  borderTop: "1px solid #e5e5e5",
+                  borderTop:
+                    "1px solid #e5e5e5",
                   margin: "8px 0",
                 }}
               />
@@ -464,7 +653,10 @@ export default function AssessmentClient() {
                 }}
               >
                 ✓ {selectedSymptomCount} symptom
-                {selectedSymptomCount === 1 ? "" : "s"} selected
+                {selectedSymptomCount === 1
+                  ? ""
+                  : "s"}{" "}
+                selected
               </p>
             )}
           </div>
@@ -479,7 +671,9 @@ export default function AssessmentClient() {
             <button
               type="button"
               className="choice-button"
-              onClick={() => setStep("risk")}
+              onClick={() =>
+                setStep("risk")
+              }
             >
               ← Back
             </button>
@@ -488,7 +682,9 @@ export default function AssessmentClient() {
               type="button"
               className="start-button"
               disabled={!symptomsAnswered}
-              onClick={() => setStep("prep")}
+              onClick={() =>
+                setStep("prep")
+              }
             >
               Continue
             </button>
@@ -502,20 +698,27 @@ export default function AssessmentClient() {
 
       {step === "prep" && (
         <>
-          <p className="eyebrow">HIV prevention</p>
+          <p className="eyebrow">
+            HIV prevention
+          </p>
 
-          <h1>Would you like to consider PrEP?</h1>
+          <h1>
+            Would you like to consider PrEP?
+          </h1>
 
           <p className="flow-subtitle">
-            PrEP is HIV prevention medication for people who
-            do not have HIV. A healthcare professional can
-            assess whether it is appropriate for you.
+            PrEP is HIV prevention medication for
+            people who do not have HIV. A healthcare
+            professional can assess whether it is
+            appropriate for you.
           </p>
 
           <div className="question-card">
             <div className="choice-column">
               <ChoiceButton
-                selected={prepInterest === "prep"}
+                selected={
+                  prepInterest === "prep"
+                }
                 onClick={() =>
                   setPrepInterest("prep")
                 }
@@ -524,7 +727,9 @@ export default function AssessmentClient() {
               </ChoiceButton>
 
               <ChoiceButton
-                selected={prepInterest === "clinician"}
+                selected={
+                  prepInterest === "clinician"
+                }
                 onClick={() =>
                   setPrepInterest("clinician")
                 }
@@ -533,7 +738,9 @@ export default function AssessmentClient() {
               </ChoiceButton>
 
               <ChoiceButton
-                selected={prepInterest === "services"}
+                selected={
+                  prepInterest === "services"
+                }
                 onClick={() =>
                   setPrepInterest("services")
                 }
@@ -553,7 +760,9 @@ export default function AssessmentClient() {
             <button
               type="button"
               className="choice-button"
-              onClick={() => setStep("symptoms")}
+              onClick={() =>
+                setStep("symptoms")
+              }
             >
               ← Back
             </button>
@@ -562,7 +771,9 @@ export default function AssessmentClient() {
               type="button"
               className="start-button"
               disabled={!prepInterest}
-              onClick={() => setStep("location")}
+              onClick={() =>
+                setStep("location")
+              }
             >
               Continue
             </button>
@@ -580,11 +791,13 @@ export default function AssessmentClient() {
             HIVClinExp Provider Network
           </p>
 
-          <h1>Find a PrEP pharmacy near you</h1>
+          <h1>
+            Find a PrEP pharmacy near you
+          </h1>
 
           <p className="flow-subtitle">
-            Enter your location to find participating
-            HIVClinExp providers near you.
+            Enter your city, town or suburb to find
+            participating HIVClinExp providers.
           </p>
 
           <div className="question-card">
@@ -600,12 +813,17 @@ export default function AssessmentClient() {
               onChange={(e) => {
                 setCity(e.target.value);
                 setSearchMessage("");
+                setSearchError("");
+                setPharmacies([]);
+                setSelectedPharmacy(null);
               }}
             />
 
             <label
               htmlFor="suburb"
-              style={{ marginTop: "14px" }}
+              style={{
+                marginTop: "14px",
+              }}
             >
               Suburb
             </label>
@@ -618,6 +836,9 @@ export default function AssessmentClient() {
               onChange={(e) => {
                 setSuburb(e.target.value);
                 setSearchMessage("");
+                setSearchError("");
+                setPharmacies([]);
+                setSelectedPharmacy(null);
               }}
             />
 
@@ -632,7 +853,9 @@ export default function AssessmentClient() {
               <button
                 type="button"
                 className="choice-button"
-                onClick={() => setStep("prep")}
+                onClick={() =>
+                  setStep("prep")
+                }
               >
                 ← Back
               </button>
@@ -641,32 +864,43 @@ export default function AssessmentClient() {
                 type="button"
                 className="start-button"
                 disabled={
-                  !city.trim() || !suburb.trim()
+                  searching ||
+                  (!city.trim() &&
+                    !suburb.trim())
                 }
-                onClick={() => {
-                  const assessment = {
-                    exposureTiming,
-                    pepUrgent,
-                    risk,
-                    symptoms,
-                    prepInterest,
-                    city: city.trim(),
-                    suburb: suburb.trim(),
-                  };
-
-                  console.log(
-                    "HIVClinTest assessment:",
-                    assessment
-                  );
-
-                  setSearchMessage(
-                    "Your assessment is complete. Pharmacy search is ready to be connected to the HIVClinExp provider database."
-                  );
-                }}
+                onClick={searchPharmacies}
               >
-                Find pharmacies near me
+                {searching
+                  ? "Searching pharmacies..."
+                  : "Find pharmacies near me"}
               </button>
             </div>
+
+            {searchError && (
+              <div
+                style={{
+                  marginTop: "20px",
+                  padding: "18px",
+                  borderRadius: "14px",
+                  background: "#fff4f2",
+                  border:
+                    "1px solid #efcbc5",
+                }}
+              >
+                <strong>
+                  Unable to search pharmacies
+                </strong>
+
+                <p
+                  style={{
+                    marginTop: "6px",
+                    marginBottom: 0,
+                  }}
+                >
+                  {searchError}
+                </p>
+              </div>
+            )}
 
             {searchMessage && (
               <div
@@ -675,10 +909,15 @@ export default function AssessmentClient() {
                   padding: "18px",
                   borderRadius: "14px",
                   background: "#f1f8f6",
-                  border: "1px solid #cfe6df",
+                  border:
+                    "1px solid #cfe6df",
                 }}
               >
-                <strong>Assessment complete</strong>
+                <strong>
+                  {selectedPharmacy
+                    ? "Pharmacy selected"
+                    : "Search results"}
+                </strong>
 
                 <p
                   style={{
@@ -691,6 +930,199 @@ export default function AssessmentClient() {
               </div>
             )}
           </div>
+
+          {/* =================================================
+              PHARMACY RESULTS
+          ================================================= */}
+
+          {pharmacies.length > 0 && (
+            <div
+              style={{
+                marginTop: "30px",
+              }}
+            >
+              <p className="eyebrow">
+                HIVClinExp Provider Network
+              </p>
+
+              <h2>
+                Participating pharmacies
+              </h2>
+
+              <p className="flow-subtitle">
+                Select a pharmacy below.
+              </p>
+
+              <div
+                style={{
+                  display: "grid",
+                  gap: "16px",
+                  marginTop: "20px",
+                }}
+              >
+                {pharmacies.map(
+                  (pharmacy, index) => {
+                    const isSelected =
+                      selectedPharmacy?.practice_no ===
+                        pharmacy.practice_no &&
+                      selectedPharmacy?.practice_name ===
+                        pharmacy.practice_name;
+
+                    const mapQuery =
+                      pharmacy.practice_full_address ||
+                      pharmacy.practice_name ||
+                      "";
+
+                    const mapUrl =
+                      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                        mapQuery
+                      )}`;
+
+                    return (
+                      <div
+                        key={
+                          pharmacy.practice_no?.toString() ||
+                          `${pharmacy.practice_name}-${index}`
+                        }
+                        className="question-card"
+                        style={{
+                          margin: 0,
+                          border: isSelected
+                            ? "2px solid #167565"
+                            : undefined,
+                          background: isSelected
+                            ? "#f1f8f6"
+                            : undefined,
+                        }}
+                      >
+                        {isSelected && (
+                          <p
+                            style={{
+                              marginTop: 0,
+                              color:
+                                "#167565",
+                              fontWeight: 700,
+                            }}
+                          >
+                            ✓ Selected pharmacy
+                          </p>
+                        )}
+
+                        <h3
+                          style={{
+                            marginTop: 0,
+                            marginBottom:
+                              "12px",
+                          }}
+                        >
+                          {pharmacy.practice_name ||
+                            "Participating pharmacy"}
+                        </h3>
+
+                        {pharmacy.practice_full_address && (
+                          <p
+                            style={{
+                              margin:
+                                "8px 0",
+                            }}
+                          >
+                            <strong>
+                              Address:
+                            </strong>{" "}
+                            {
+                              pharmacy.practice_full_address
+                            }
+                          </p>
+                        )}
+
+                        {pharmacy.practice_province && (
+                          <p
+                            style={{
+                              margin:
+                                "8px 0",
+                            }}
+                          >
+                            <strong>
+                              Province:
+                            </strong>{" "}
+                            {
+                              pharmacy.practice_province
+                            }
+                          </p>
+                        )}
+
+                        {pharmacy.practice_contact_no && (
+                          <p
+                            style={{
+                              margin:
+                                "8px 0",
+                            }}
+                          >
+                            <strong>
+                              Telephone:
+                            </strong>{" "}
+                            <a
+                              href={`tel:${pharmacy.practice_contact_no}`}
+                            >
+                              {
+                                pharmacy.practice_contact_no
+                              }
+                            </a>
+                          </p>
+                        )}
+
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "10px",
+                            flexWrap:
+                              "wrap",
+                            marginTop:
+                              "16px",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="start-button"
+                            onClick={() =>
+                              selectPharmacy(
+                                pharmacy
+                              )
+                            }
+                          >
+                            {isSelected
+                              ? "✓ Pharmacy selected"
+                              : "Select this pharmacy"}
+                          </button>
+
+                          {mapQuery && (
+                            <a
+                              href={mapUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="choice-button"
+                              style={{
+                                textDecoration:
+                                  "none",
+                                display:
+                                  "inline-flex",
+                                alignItems:
+                                  "center",
+                                justifyContent:
+                                  "center",
+                              }}
+                            >
+                              View map
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+                )}
+              </div>
+            </div>
+          )}
         </>
       )}
     </>
