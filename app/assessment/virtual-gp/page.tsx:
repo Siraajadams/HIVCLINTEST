@@ -1,0 +1,60 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+
+type Assessment = {
+  exposureTiming?: string;
+  prepInterest?: string;
+  pepUrgent?: boolean;
+
+  risk?: {
+    condomlessSex?: boolean;
+    multiplePartners?: boolean;
+    partnerPositive?: boolean;
+    partnerUnknown?: boolean;
+    recentSTI?: boolean;
+    none?: boolean;
+  };
+
+  symptoms?: {
+    genitalSore?: boolean;
+    discharge?: boolean;
+    painfulUrination?: boolean;
+    genitalRash?: boolean;
+    none?: boolean;
+  };
+
+  carePreference?: string;
+  consultationReason?: string;
+  consultationFee?: number;
+};
+
+export default function VirtualGPPage() {
+  const [assessment, setAssessment] =
+    useState<Assessment | null>(null);
+
+  useEffect(() => {
+    try {
+      const savedAssessment =
+        sessionStorage.getItem(
+          "hivclintest_assessment"
+        );
+
+      if (savedAssessment) {
+        setAssessment(
+          JSON.parse(savedAssessment)
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Unable to load assessment:",
+        error
+      );
+    }
+  }, []);
+
+  const pepUrgent =
+    assessment?.pepUrgent === true;
+
+  const symptomCount
