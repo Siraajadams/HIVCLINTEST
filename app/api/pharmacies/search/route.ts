@@ -166,10 +166,9 @@ export async function GET(request: NextRequest) {
         method: "GET",
 
         headers: {
-          apikey: supabaseKey,
-          Authorization: `Bearer ${supabaseKey}`,
-          Accept: "application/json",
-        },
+  apikey: supabaseKey,
+  Accept: "application/json",
+},
 
         cache: "no-store",
       }
