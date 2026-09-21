@@ -33,14 +33,11 @@ type Assessment = {
   risk: RiskState;
   symptoms: SymptomState;
   prepInterest: string;
-
   searchLocation?: {
     city?: string;
     suburb?: string;
   };
-
   selectedPharmacy: Pharmacy;
-
   completedAt?: string;
 };
 
@@ -54,17 +51,16 @@ export default function AssessmentSummaryPage() {
 
   useEffect(() => {
     try {
-      const savedAssessment = sessionStorage.getItem(
+      const saved = sessionStorage.getItem(
         "hivclintest_assessment"
       );
 
-      if (savedAssessment) {
-        const parsed = JSON.parse(savedAssessment);
-        setAssessment(parsed);
+      if (saved) {
+        setAssessment(JSON.parse(saved));
       }
     } catch (error) {
       console.error(
-        "Unable to load HIVClinTest assessment:",
+        "Unable to load assessment:",
         error
       );
     } finally {
@@ -86,7 +82,9 @@ export default function AssessmentSummaryPage() {
     return (
       <main style={styles.page}>
         <div style={styles.container}>
-          <p style={styles.eyebrow}>HIVClinTest</p>
+          <p style={styles.eyebrow}>
+            HIVClinTest
+          </p>
 
           <h1 style={styles.heading}>
             Assessment not found
@@ -100,7 +98,9 @@ export default function AssessmentSummaryPage() {
           <button
             type="button"
             style={styles.primaryButton}
-            onClick={() => router.push("/assessment")}
+            onClick={() =>
+              router.push("/assessment")
+            }
           >
             Start assessment
           </button>
@@ -121,7 +121,8 @@ export default function AssessmentSummaryPage() {
     assessment.symptoms &&
     !assessment.symptoms.none &&
     Object.entries(assessment.symptoms).some(
-      ([key, value]) => key !== "none" && value
+      ([key, value]) =>
+        key !== "none" && value
     );
 
   const mapQuery =
@@ -162,6 +163,22 @@ export default function AssessmentSummaryPage() {
     }
   }
 
+  function prepLabel(value: string) {
+    switch (value) {
+      case "prep":
+        return "Interested in PrEP";
+
+      case "clinician":
+        return "Would like to speak to a healthcare professional";
+
+      case "services":
+        return "Looking for HIV prevention services";
+
+      default:
+        return "Not recorded";
+    }
+  }
+
   function startAgain() {
     sessionStorage.removeItem(
       "hivclintest_assessment"
@@ -177,6 +194,7 @@ export default function AssessmentSummaryPage() {
   return (
     <main style={styles.page}>
       <div style={styles.container}>
+
         <p style={styles.eyebrow}>
           HIVClinTest
         </p>
@@ -186,16 +204,15 @@ export default function AssessmentSummaryPage() {
         </h1>
 
         <p style={styles.intro}>
-          Based on the information you provided, here are
-          your next steps.
+          Based on the information you provided,
+          here are your next steps.
         </p>
 
-        {/* ==========================================
-            PEP URGENT
-        =========================================== */}
+        {/* PEP URGENT */}
 
         {pepUrgent && (
           <section style={styles.urgentCard}>
+
             <div style={styles.urgentBadge}>
               URGENT
             </div>
@@ -205,30 +222,31 @@ export default function AssessmentSummaryPage() {
             </h2>
 
             <p style={styles.text}>
-              You reported a possible HIV exposure within
-              the last 72 hours.
+              You reported a possible HIV exposure
+              within the last 72 hours.
             </p>
 
             <p style={styles.text}>
-              PEP is medication used after a possible HIV
-              exposure. It should be assessed as soon as
-              possible and started within 72 hours when
-              clinically appropriate.
+              PEP is medication used after a possible
+              HIV exposure. It should be assessed as
+              soon as possible and started within
+              72 hours when clinically appropriate.
             </p>
 
             <p style={styles.urgentText}>
-              Please contact or visit a healthcare
-              professional urgently for assessment.
+              Please seek urgent assessment from a
+              healthcare professional or healthcare
+              facility.
             </p>
+
           </section>
         )}
 
-        {/* ==========================================
-            STI SYMPTOMS
-        =========================================== */}
+        {/* STI SYMPTOMS */}
 
         {hasSymptoms && (
           <section style={styles.warningCard}>
+
             <p style={styles.eyebrow}>
               STI assessment
             </p>
@@ -238,23 +256,24 @@ export default function AssessmentSummaryPage() {
             </h2>
 
             <p style={styles.text}>
-              You indicated that you currently have one or
-              more symptoms that may require assessment by
-              a healthcare professional.
+              You indicated that you currently have
+              one or more symptoms that may require
+              assessment by a healthcare professional.
             </p>
 
             <p style={styles.text}>
               Please discuss these symptoms with the
-              pharmacist or another healthcare professional.
+              pharmacist or another healthcare
+              professional.
             </p>
+
           </section>
         )}
 
-        {/* ==========================================
-            SELECTED PHARMACY
-        =========================================== */}
+        {/* SELECTED PHARMACY */}
 
         <section style={styles.pharmacyCard}>
+
           <p style={styles.successEyebrow}>
             ✓ Selected pharmacy
           </p>
@@ -282,6 +301,7 @@ export default function AssessmentSummaryPage() {
           {pharmacy?.practice_contact_no && (
             <p style={styles.text}>
               <strong>Telephone:</strong>{" "}
+
               <a
                 href={`tel:${pharmacy.practice_contact_no}`}
                 style={styles.link}
@@ -292,6 +312,7 @@ export default function AssessmentSummaryPage() {
           )}
 
           <div style={styles.buttonRow}>
+
             {mapQuery && (
               <a
                 href={mapUrl}
@@ -311,55 +332,64 @@ export default function AssessmentSummaryPage() {
                 Call pharmacy
               </a>
             )}
+
           </div>
+
         </section>
 
-        {/* ==========================================
-            NEXT STEP
-        =========================================== */}
+        {/* NEXT STEP */}
 
         <section style={styles.nextStepCard}>
+
           <p style={styles.eyebrow}>
             Your next step
           </p>
 
           <h2 style={styles.cardHeading}>
-            Visit or contact your selected pharmacy
+            Contact your selected pharmacy
           </h2>
 
-          <p style={styles.text}>
-            Your selected HIVClinExp pharmacy can provide
-            further HIV prevention support and determine
-            which services are appropriate for you.
-          </p>
+          {assessment.prepInterest === "prep" ? (
+            <>
+              <p style={styles.text}>
+                You indicated that you are interested
+                in PrEP.
+              </p>
 
-          {assessment.prepInterest === "prep" && (
-            <p style={styles.highlightText}>
-              You indicated that you are interested in
-              PrEP. Ask the pharmacist about a PrEP
-              assessment.
+              <p style={styles.highlightText}>
+                Contact or visit your selected
+                HIVClinExp pharmacy for a PrEP
+                assessment.
+              </p>
+            </>
+          ) : (
+            <p style={styles.text}>
+              Contact or visit your selected HIVClinExp
+              pharmacy for further HIV prevention
+              support and assessment.
             </p>
           )}
 
           {pepUrgent && (
             <p style={styles.urgentText}>
-              Because your reported exposure was within
-              72 hours, do not delay seeking professional
-              assessment for PEP.
+              Because your possible exposure was
+              within the last 72 hours, do not delay
+              seeking professional assessment for PEP.
             </p>
           )}
+
         </section>
 
-        {/* ==========================================
-            ASSESSMENT DETAILS
-        =========================================== */}
+        {/* SUMMARY */}
 
         <section style={styles.summaryCard}>
+
           <p style={styles.eyebrow}>
             Assessment summary
           </p>
 
           <div style={styles.summaryRow}>
+
             <span style={styles.summaryLabel}>
               Possible exposure
             </span>
@@ -369,27 +399,25 @@ export default function AssessmentSummaryPage() {
                 assessment.exposureTiming
               )}
             </span>
+
           </div>
 
           <div style={styles.summaryRow}>
+
             <span style={styles.summaryLabel}>
-              PrEP
+              PrEP pathway
             </span>
 
             <span style={styles.summaryValue}>
-              {assessment.prepInterest === "prep"
-                ? "Interested in PrEP"
-                : assessment.prepInterest ===
-                    "clinician"
-                ? "Would like to speak to a healthcare professional"
-                : assessment.prepInterest ===
-                    "services"
-                ? "Looking for HIV prevention services"
-                : "Not recorded"}
+              {prepLabel(
+                assessment.prepInterest
+              )}
             </span>
+
           </div>
 
           <div style={styles.summaryRow}>
+
             <span style={styles.summaryLabel}>
               STI symptoms
             </span>
@@ -399,22 +427,26 @@ export default function AssessmentSummaryPage() {
                 ? "Symptoms reported"
                 : "No listed symptoms reported"}
             </span>
+
           </div>
+
         </section>
 
-        {/* ==========================================
-            DISCLAIMER
-        =========================================== */}
+        {/* DISCLAIMER */}
 
         <section style={styles.disclaimer}>
-          <strong>Important</strong>
+
+          <strong>
+            Important
+          </strong>
 
           <p style={{ marginBottom: 0 }}>
-            HIVClinTest provides educational and navigation
-            support and does not replace assessment,
-            diagnosis or treatment by a qualified healthcare
-            professional.
+            HIVClinTest provides educational and
+            navigation support and does not replace
+            assessment, diagnosis or treatment by a
+            qualified healthcare professional.
           </p>
+
         </section>
 
         <button
@@ -424,12 +456,17 @@ export default function AssessmentSummaryPage() {
         >
           Start a new assessment
         </button>
+
       </div>
     </main>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
+const styles: Record<
+  string,
+  React.CSSProperties
+> = {
+
   page: {
     minHeight: "100vh",
     background: "#f7faf9",
@@ -593,7 +630,8 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     gap: "20px",
     padding: "14px 0",
-    borderBottom: "1px solid #e6ecea",
+    borderBottom:
+      "1px solid #e6ecea",
   },
 
   summaryLabel: {
