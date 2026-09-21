@@ -130,8 +130,7 @@ export default function AssessmentClient() {
     ([key, value]) => key !== "none" && value
   ).length;
 
-  const riskAnswered =
-    selectedRiskCount > 0 || risk.none;
+  const riskAnswered = selectedRiskCount > 0 || risk.none;
 
   const symptomsAnswered =
     selectedSymptomCount > 0 || symptoms.none;
@@ -145,9 +144,7 @@ export default function AssessmentClient() {
     const cleanSuburb = suburb.trim();
 
     if (!cleanCity && !cleanSuburb) {
-      setSearchError(
-        "Please enter a city, town or suburb."
-      );
+      setSearchError("Please enter a city, town or suburb.");
       return;
     }
 
@@ -197,10 +194,7 @@ export default function AssessmentClient() {
       }
 
       if (!response.ok) {
-        console.error(
-          "Pharmacy API error:",
-          result
-        );
+        console.error("Pharmacy API error:", result);
 
         throw new Error(
           result.error ||
@@ -209,8 +203,7 @@ export default function AssessmentClient() {
         );
       }
 
-      const results =
-        result.pharmacies || [];
+      const results = result.pharmacies || [];
 
       setPharmacies(results);
 
@@ -221,17 +214,12 @@ export default function AssessmentClient() {
       } else {
         setSearchMessage(
           `${results.length} participating ${
-            results.length === 1
-              ? "pharmacy"
-              : "pharmacies"
+            results.length === 1 ? "pharmacy" : "pharmacies"
           } found.`
         );
       }
     } catch (error) {
-      console.error(
-        "Pharmacy search failed:",
-        error
-      );
+      console.error("Pharmacy search failed:", error);
 
       setSearchError(
         error instanceof Error
@@ -254,10 +242,63 @@ export default function AssessmentClient() {
       `${pharmacy.practice_name || "Pharmacy"} selected.`
     );
 
-    console.log(
-      "Selected pharmacy:",
-      pharmacy
-    );
+    console.log("Selected pharmacy:", pharmacy);
+
+    // Bring the patient to the confirmation/continue section.
+    window.setTimeout(() => {
+      document
+        .getElementById("pharmacy-confirmation")
+        ?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+    }, 100);
+  }
+
+  // =========================================================
+  // COMPLETE ASSESSMENT
+  // =========================================================
+
+  function continueWithSelectedPharmacy() {
+    if (!selectedPharmacy) {
+      return;
+    }
+
+    const assessment = {
+      exposureTiming,
+      risk,
+      symptoms,
+      prepInterest,
+      searchLocation: {
+        city,
+        suburb,
+      },
+      selectedPharmacy,
+      completedAt: new Date().toISOString(),
+    };
+
+    try {
+      sessionStorage.setItem(
+        "hivclintest_selected_pharmacy",
+        JSON.stringify(selectedPharmacy)
+      );
+
+      sessionStorage.setItem(
+        "hivclintest_assessment",
+        JSON.stringify(assessment)
+      );
+
+      window.location.href = "/assessment/summary";
+    } catch (error) {
+      console.error(
+        "Unable to save assessment before continuing:",
+        error
+      );
+
+      setSearchError(
+        "We could not continue with your selected pharmacy. Please try again."
+      );
+    }
   }
 
   // =========================================================
@@ -336,17 +377,13 @@ export default function AssessmentClient() {
 
       {step === "exposure" && (
         <>
-          <p className="eyebrow">
-            HIV assessment
-          </p>
+          <p className="eyebrow">HIV assessment</p>
 
-          <h1>
-            When was the possible HIV exposure?
-          </h1>
+          <h1>When was the possible HIV exposure?</h1>
 
           <p className="flow-subtitle">
-            This helps identify whether you may need
-            urgent assessment for PEP.
+            This helps identify whether you may need urgent
+            assessment for PEP.
           </p>
 
           <div className="question-card">
@@ -368,9 +405,7 @@ export default function AssessmentClient() {
               ].map(([value, label]) => (
                 <ChoiceButton
                   key={value}
-                  selected={
-                    exposureTiming === value
-                  }
+                  selected={exposureTiming === value}
                   onClick={() =>
                     setExposureTiming(value)
                   }
@@ -383,24 +418,20 @@ export default function AssessmentClient() {
 
           {pepUrgent && (
             <div className="question-card">
-              <p className="eyebrow">
-                URGENT
-              </p>
+              <p className="eyebrow">URGENT</p>
 
               <h2>You may need PEP</h2>
 
               <p>
-                PEP is medication used after a
-                possible HIV exposure. It should be
-                assessed as soon as possible and
-                started within 72 hours when
+                PEP is medication used after a possible HIV
+                exposure. It should be assessed as soon as
+                possible and started within 72 hours when
                 clinically appropriate.
               </p>
 
               <p>
-                Please seek urgent assessment from a
-                healthcare professional or healthcare
-                facility.
+                Please seek urgent assessment from a healthcare
+                professional or healthcare facility.
               </p>
             </div>
           )}
@@ -422,18 +453,15 @@ export default function AssessmentClient() {
 
       {step === "risk" && (
         <>
-          <p className="eyebrow">
-            HIV prevention
-          </p>
+          <p className="eyebrow">HIV prevention</p>
 
           <h1>
             A few questions about your sexual health
           </h1>
 
           <p className="flow-subtitle">
-            Select all that have applied to you during
-            the last 6 months. You can select more
-            than one.
+            Select all that have applied to you during the last
+            6 months. You can select more than one.
           </p>
 
           <div className="question-card">
@@ -471,8 +499,7 @@ export default function AssessmentClient() {
                   toggleRisk("partnerUnknown")
                 }
               >
-                Unsure of a sexual partner&apos;s HIV
-                status
+                Unsure of a sexual partner&apos;s HIV status
               </ChoiceButton>
 
               <ChoiceButton
@@ -486,17 +513,14 @@ export default function AssessmentClient() {
 
               <div
                 style={{
-                  borderTop:
-                    "1px solid #e5e5e5",
+                  borderTop: "1px solid #e5e5e5",
                   margin: "8px 0",
                 }}
               />
 
               <ChoiceButton
                 selected={risk.none}
-                onClick={() =>
-                  toggleRisk("none")
-                }
+                onClick={() => toggleRisk("none")}
               >
                 None of the above
               </ChoiceButton>
@@ -513,10 +537,7 @@ export default function AssessmentClient() {
                 }}
               >
                 ✓ {selectedRiskCount} option
-                {selectedRiskCount === 1
-                  ? ""
-                  : "s"}{" "}
-                selected
+                {selectedRiskCount === 1 ? "" : "s"} selected
               </p>
             )}
           </div>
@@ -531,9 +552,7 @@ export default function AssessmentClient() {
             <button
               type="button"
               className="choice-button"
-              onClick={() =>
-                setStep("exposure")
-              }
+              onClick={() => setStep("exposure")}
             >
               ← Back
             </button>
@@ -542,9 +561,7 @@ export default function AssessmentClient() {
               type="button"
               className="start-button"
               disabled={!riskAnswered}
-              onClick={() =>
-                setStep("symptoms")
-              }
+              onClick={() => setStep("symptoms")}
             >
               Continue
             </button>
@@ -558,39 +575,30 @@ export default function AssessmentClient() {
 
       {step === "symptoms" && (
         <>
-          <p className="eyebrow">
-            STI screening
-          </p>
+          <p className="eyebrow">STI screening</p>
 
           <h1>
-            Do you currently have any of these
-            symptoms?
+            Do you currently have any of these symptoms?
           </h1>
 
           <p className="flow-subtitle">
-            Select all that apply. You can select
-            more than one symptom.
+            Select all that apply. You can select more than one
+            symptom.
           </p>
 
           <div className="question-card">
             <div className="choice-column">
               <ChoiceButton
-                selected={
-                  symptoms.genitalSore
-                }
+                selected={symptoms.genitalSore}
                 onClick={() =>
-                  toggleSymptom(
-                    "genitalSore"
-                  )
+                  toggleSymptom("genitalSore")
                 }
               >
                 Genital sore or ulcer
               </ChoiceButton>
 
               <ChoiceButton
-                selected={
-                  symptoms.discharge
-                }
+                selected={symptoms.discharge}
                 onClick={() =>
                   toggleSymptom("discharge")
                 }
@@ -599,26 +607,18 @@ export default function AssessmentClient() {
               </ChoiceButton>
 
               <ChoiceButton
-                selected={
-                  symptoms.painfulUrination
-                }
+                selected={symptoms.painfulUrination}
                 onClick={() =>
-                  toggleSymptom(
-                    "painfulUrination"
-                  )
+                  toggleSymptom("painfulUrination")
                 }
               >
                 Pain or burning when urinating
               </ChoiceButton>
 
               <ChoiceButton
-                selected={
-                  symptoms.genitalRash
-                }
+                selected={symptoms.genitalRash}
                 onClick={() =>
-                  toggleSymptom(
-                    "genitalRash"
-                  )
+                  toggleSymptom("genitalRash")
                 }
               >
                 Genital rash
@@ -626,8 +626,7 @@ export default function AssessmentClient() {
 
               <div
                 style={{
-                  borderTop:
-                    "1px solid #e5e5e5",
+                  borderTop: "1px solid #e5e5e5",
                   margin: "8px 0",
                 }}
               />
@@ -653,10 +652,7 @@ export default function AssessmentClient() {
                 }}
               >
                 ✓ {selectedSymptomCount} symptom
-                {selectedSymptomCount === 1
-                  ? ""
-                  : "s"}{" "}
-                selected
+                {selectedSymptomCount === 1 ? "" : "s"} selected
               </p>
             )}
           </div>
@@ -671,9 +667,7 @@ export default function AssessmentClient() {
             <button
               type="button"
               className="choice-button"
-              onClick={() =>
-                setStep("risk")
-              }
+              onClick={() => setStep("risk")}
             >
               ← Back
             </button>
@@ -682,9 +676,7 @@ export default function AssessmentClient() {
               type="button"
               className="start-button"
               disabled={!symptomsAnswered}
-              onClick={() =>
-                setStep("prep")
-              }
+              onClick={() => setStep("prep")}
             >
               Continue
             </button>
@@ -698,27 +690,20 @@ export default function AssessmentClient() {
 
       {step === "prep" && (
         <>
-          <p className="eyebrow">
-            HIV prevention
-          </p>
+          <p className="eyebrow">HIV prevention</p>
 
-          <h1>
-            Would you like to consider PrEP?
-          </h1>
+          <h1>Would you like to consider PrEP?</h1>
 
           <p className="flow-subtitle">
-            PrEP is HIV prevention medication for
-            people who do not have HIV. A healthcare
-            professional can assess whether it is
-            appropriate for you.
+            PrEP is HIV prevention medication for people who do
+            not have HIV. A healthcare professional can assess
+            whether it is appropriate for you.
           </p>
 
           <div className="question-card">
             <div className="choice-column">
               <ChoiceButton
-                selected={
-                  prepInterest === "prep"
-                }
+                selected={prepInterest === "prep"}
                 onClick={() =>
                   setPrepInterest("prep")
                 }
@@ -727,9 +712,7 @@ export default function AssessmentClient() {
               </ChoiceButton>
 
               <ChoiceButton
-                selected={
-                  prepInterest === "clinician"
-                }
+                selected={prepInterest === "clinician"}
                 onClick={() =>
                   setPrepInterest("clinician")
                 }
@@ -738,9 +721,7 @@ export default function AssessmentClient() {
               </ChoiceButton>
 
               <ChoiceButton
-                selected={
-                  prepInterest === "services"
-                }
+                selected={prepInterest === "services"}
                 onClick={() =>
                   setPrepInterest("services")
                 }
@@ -760,9 +741,7 @@ export default function AssessmentClient() {
             <button
               type="button"
               className="choice-button"
-              onClick={() =>
-                setStep("symptoms")
-              }
+              onClick={() => setStep("symptoms")}
             >
               ← Back
             </button>
@@ -771,9 +750,7 @@ export default function AssessmentClient() {
               type="button"
               className="start-button"
               disabled={!prepInterest}
-              onClick={() =>
-                setStep("location")
-              }
+              onClick={() => setStep("location")}
             >
               Continue
             </button>
@@ -791,9 +768,7 @@ export default function AssessmentClient() {
             HIVClinExp Provider Network
           </p>
 
-          <h1>
-            Find a PrEP pharmacy near you
-          </h1>
+          <h1>Find a PrEP pharmacy near you</h1>
 
           <p className="flow-subtitle">
             Enter your city, town or suburb to find
@@ -853,9 +828,7 @@ export default function AssessmentClient() {
               <button
                 type="button"
                 className="choice-button"
-                onClick={() =>
-                  setStep("prep")
-                }
+                onClick={() => setStep("prep")}
               >
                 ← Back
               </button>
@@ -865,8 +838,7 @@ export default function AssessmentClient() {
                 className="start-button"
                 disabled={
                   searching ||
-                  (!city.trim() &&
-                    !suburb.trim())
+                  (!city.trim() && !suburb.trim())
                 }
                 onClick={searchPharmacies}
               >
@@ -883,8 +855,7 @@ export default function AssessmentClient() {
                   padding: "18px",
                   borderRadius: "14px",
                   background: "#fff4f2",
-                  border:
-                    "1px solid #efcbc5",
+                  border: "1px solid #efcbc5",
                 }}
               >
                 <strong>
@@ -909,8 +880,7 @@ export default function AssessmentClient() {
                   padding: "18px",
                   borderRadius: "14px",
                   background: "#f1f8f6",
-                  border:
-                    "1px solid #cfe6df",
+                  border: "1px solid #cfe6df",
                 }}
               >
                 <strong>
@@ -945,9 +915,7 @@ export default function AssessmentClient() {
                 HIVClinExp Provider Network
               </p>
 
-              <h2>
-                Participating pharmacies
-              </h2>
+              <h2>Participating pharmacies</h2>
 
               <p className="flow-subtitle">
                 Select a pharmacy below.
@@ -999,8 +967,7 @@ export default function AssessmentClient() {
                           <p
                             style={{
                               marginTop: 0,
-                              color:
-                                "#167565",
+                              color: "#167565",
                               fontWeight: 700,
                             }}
                           >
@@ -1011,8 +978,7 @@ export default function AssessmentClient() {
                         <h3
                           style={{
                             marginTop: 0,
-                            marginBottom:
-                              "12px",
+                            marginBottom: "12px",
                           }}
                         >
                           {pharmacy.practice_name ||
@@ -1022,8 +988,7 @@ export default function AssessmentClient() {
                         {pharmacy.practice_full_address && (
                           <p
                             style={{
-                              margin:
-                                "8px 0",
+                              margin: "8px 0",
                             }}
                           >
                             <strong>
@@ -1038,8 +1003,7 @@ export default function AssessmentClient() {
                         {pharmacy.practice_province && (
                           <p
                             style={{
-                              margin:
-                                "8px 0",
+                              margin: "8px 0",
                             }}
                           >
                             <strong>
@@ -1054,8 +1018,7 @@ export default function AssessmentClient() {
                         {pharmacy.practice_contact_no && (
                           <p
                             style={{
-                              margin:
-                                "8px 0",
+                              margin: "8px 0",
                             }}
                           >
                             <strong>
@@ -1075,10 +1038,8 @@ export default function AssessmentClient() {
                           style={{
                             display: "flex",
                             gap: "10px",
-                            flexWrap:
-                              "wrap",
-                            marginTop:
-                              "16px",
+                            flexWrap: "wrap",
+                            marginTop: "16px",
                           }}
                         >
                           <button
@@ -1121,6 +1082,92 @@ export default function AssessmentClient() {
                   }
                 )}
               </div>
+
+              {/* ===============================================
+                  SELECTED PHARMACY CONFIRMATION
+              =============================================== */}
+
+              {selectedPharmacy && (
+                <div
+                  id="pharmacy-confirmation"
+                  className="question-card"
+                  style={{
+                    marginTop: "24px",
+                    border: "2px solid #167565",
+                    background: "#f1f8f6",
+                  }}
+                >
+                  <p
+                    className="eyebrow"
+                    style={{
+                      color: "#167565",
+                      marginTop: 0,
+                    }}
+                  >
+                    ✓ Pharmacy selected
+                  </p>
+
+                  <h2
+                    style={{
+                      marginBottom: "8px",
+                    }}
+                  >
+                    {selectedPharmacy.practice_name ||
+                      "Selected pharmacy"}
+                  </h2>
+
+                  {selectedPharmacy.practice_full_address && (
+                    <p
+                      style={{
+                        marginBottom: "8px",
+                      }}
+                    >
+                      <strong>Address:</strong>{" "}
+                      {
+                        selectedPharmacy.practice_full_address
+                      }
+                    </p>
+                  )}
+
+                  {selectedPharmacy.practice_contact_no && (
+                    <p
+                      style={{
+                        marginBottom: "8px",
+                      }}
+                    >
+                      <strong>Telephone:</strong>{" "}
+                      <a
+                        href={`tel:${selectedPharmacy.practice_contact_no}`}
+                      >
+                        {
+                          selectedPharmacy.practice_contact_no
+                        }
+                      </a>
+                    </p>
+                  )}
+
+                  <p
+                    style={{
+                      marginTop: "16px",
+                      marginBottom: "20px",
+                    }}
+                  >
+                    Your selected pharmacy has been added to
+                    your HIV prevention pathway. You can
+                    change your selection above if required.
+                  </p>
+
+                  <button
+                    type="button"
+                    className="start-button"
+                    onClick={
+                      continueWithSelectedPharmacy
+                    }
+                  >
+                    Continue →
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </>
