@@ -1,7 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import Link from "next/link";
+
+type Registration = {
+  first_name: string;
+  surname: string;
+  email: string;
+  gender: string;
+  country: string;
+  identity_type: string;
+  identity_number: string;
+  date_of_birth: string;
+  mobile_number: string;
+};
 
 type Assessment = {
   exposureTiming?: string;
@@ -30,365 +47,354 @@ type Assessment = {
   consultationFee?: number;
 };
 
-type PatientDetails = {
-  firstName: string;
-  surname: string;
-  email: string;
-  mobile: string;
-  idNumber: string;
-  dateOfBirth: string;
-  gender: string;
+const emptyPatient: Registration = {
+  first_name: "",
+  surname: "",
+  email: "",
+  gender: "",
+  country: "",
+  identity_type: "",
+  identity_number: "",
+  date_of_birth: "",
+  mobile_number: "",
 };
-
-const CONSULTATION_FEE = 250;
 
 const consultationReasons = [
   {
-    value: "PEP Assessment",
-    label: "PEP Assessment",
-    description: "Possible HIV exposure within the last 72 hours",
+    value: "PEP assessment",
+    title: "PEP assessment",
+    description:
+      "I may have had a recent HIV exposure.",
   },
   {
-    value: "PrEP Consultation",
-    label: "PrEP Consultation",
-    description: "Discuss starting or continuing HIV prevention",
+    value: "PrEP consultation",
+    title: "PrEP consultation",
+    description:
+      "I would like to discuss HIV prevention and PrEP.",
   },
   {
-    value: "HIV Test Review",
-    label: "HIV Test Review",
-    description: "Discuss an HIV self-test result with a GP",
+    value: "HIV self-test support",
+    title: "HIV self-test support",
+    description:
+      "I need help with my HIV self-test or result.",
   },
   {
-    value: "Sexual Health Consultation",
-    label: "Sexual Health Consultation",
-    description: "Discuss symptoms, STI concerns or sexual health",
+    value: "HIV clinical consultation",
+    title: "HIV clinical consultation",
+    description:
+      "I would like to speak to a GP about HIV-related care.",
   },
   {
     value: "Other",
-    label: "Other",
-    description: "Other HIV or sexual-health concern",
+    title: "Other",
+    description:
+      "I would like to discuss another concern with the GP.",
   },
 ];
 
 export default function VirtualGPPage() {
-  const [assessment, setAssessment] = useState<Assessment | null>(null);
+  const [patient, setPatient] =
+    useState<Registration>(emptyPatient);
 
-  const [patient, setPatient] = useState<PatientDetails>({
-    firstName: "",
-    surname: "",
-    email: "",
-    mobile: "",
-    idNumber: "",
-    dateOfBirth: "",
-    gender: "",
-  });
+  const [assessment, setAssessment] =
+    useState<Assessment | null>(null);
 
-  const [consultationReason, setConsultationReason] = useState("");
+  const [reason, setReason] = useState("");
   const [consent, setConsent] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+
+  const [loaded, setLoaded] = useState(false);
 
   /*
-   * ---------------------------------------------------------
-   * LOAD EXISTING ASSESSMENT
-   * ---------------------------------------------------------
+   * LOAD BOTH PARTS OF THE PATIENT JOURNEY
+   *
+   * Registration:
+   * hivclintest_registration
+   *
+   * Assessment:
+   * hivclintest_assessment
    */
-
   useEffect(() => {
     try {
-      const savedAssessment = sessionStorage.getItem(
-        "hivclintest_assessment"
+      const savedRegistration =
+        window.sessionStorage.getItem(
+          "hivclintest_registration"
+        );
+
+      const savedAssessment =
+        window.sessionStorage.getItem(
+          "hivclintest_assessment"
+        );
+
+      console.log(
+        "HIVClinTest saved registration:",
+        savedRegistration
       );
 
+      console.log(
+        "HIVClinTest saved assessment:",
+        savedAssessment
+      );
+
+      if (savedRegistration) {
+        const parsed =
+          JSON.parse(savedRegistration);
+
+        setPatient({
+          first_name:
+            parsed.first_name ?? "",
+          surname:
+            parsed.surname ?? "",
+          email:
+            parsed.email ?? "",
+          gender:
+            parsed.gender ?? "",
+          country:
+            parsed.country ?? "",
+          identity_type:
+            parsed.identity_type ?? "",
+          identity_number:
+            parsed.identity_number ?? "",
+          date_of_birth:
+            parsed.date_of_birth ?? "",
+          mobile_number:
+            parsed.mobile_number ?? "",
+        });
+      }
+
       if (savedAssessment) {
-        const parsed: Assessment = JSON.parse(savedAssessment);
+        const parsedAssessment =
+          JSON.parse(savedAssessment);
 
-        setAssessment(parsed);
+        setAssessment(parsedAssessment);
 
-        /*
-         * Automatically suggest PEP consultation
-         * when assessment has identified urgent exposure.
-         */
-        if (parsed.pepUrgent) {
-          setConsultationReason("PEP Assessment");
-        } else if (parsed.prepInterest === "yes") {
-          setConsultationReason("PrEP Consultation");
+        if (
+          parsedAssessment.consultationReason
+        ) {
+          setReason(
+            parsedAssessment.consultationReason
+          );
+        } else if (
+          parsedAssessment.pepUrgent === true
+        ) {
+          setReason("PEP assessment");
         }
       }
-
-      /*
-       * If registration details were stored previously,
-       * load them here.
-       */
-      const savedPatient =
-        sessionStorage.getItem("hivclintest_patient");
-
-      if (savedPatient) {
-        const parsedPatient = JSON.parse(savedPatient);
-
-        setPatient((current) => ({
-          ...current,
-          ...parsedPatient,
-        }));
-      }
-    } catch (err) {
-      console.error("Unable to load saved information:", err);
+    } catch (error) {
+      console.error(
+        "Unable to load HIVClinTest patient journey:",
+        error
+      );
+    } finally {
+      setLoaded(true);
     }
   }, []);
 
-  /*
-   * ---------------------------------------------------------
-   * ASSESSMENT SUMMARY
-   * ---------------------------------------------------------
-   */
+  function updatePatient(
+    field: keyof Registration,
+    value: string
+  ) {
+    setPatient((current) => {
+      const updated = {
+        ...current,
+        [field]: value,
+      };
 
-  const pepUrgent = assessment?.pepUrgent === true;
+      /*
+       * Keep registration storage synchronized
+       * if patient corrects information here.
+       */
+      try {
+        const previous =
+          window.sessionStorage.getItem(
+            "hivclintest_registration"
+          );
+
+        const previousData = previous
+          ? JSON.parse(previous)
+          : {};
+
+        window.sessionStorage.setItem(
+          "hivclintest_registration",
+          JSON.stringify({
+            ...previousData,
+            ...updated,
+          })
+        );
+      } catch (error) {
+        console.error(
+          "Unable to update registration:",
+          error
+        );
+      }
+
+      return updated;
+    });
+  }
 
   const symptomCount = useMemo(() => {
     if (!assessment?.symptoms) return 0;
 
-    const symptoms = assessment.symptoms;
-
-    return [
-      symptoms.genitalSore,
-      symptoms.discharge,
-      symptoms.painfulUrination,
-      symptoms.genitalRash,
-    ].filter(Boolean).length;
+    return Object.entries(
+      assessment.symptoms
+    ).filter(
+      ([key, value]) =>
+        key !== "none" && value === true
+    ).length;
   }, [assessment]);
 
   const riskCount = useMemo(() => {
     if (!assessment?.risk) return 0;
 
-    const risk = assessment.risk;
-
-    return [
-      risk.condomlessSex,
-      risk.multiplePartners,
-      risk.partnerPositive,
-      risk.partnerUnknown,
-      risk.recentSTI,
-    ].filter(Boolean).length;
+    return Object.entries(
+      assessment.risk
+    ).filter(
+      ([key, value]) =>
+        key !== "none" && value === true
+    ).length;
   }, [assessment]);
 
-  /*
-   * ---------------------------------------------------------
-   * PATIENT FORM
-   * ---------------------------------------------------------
-   */
+  const canContinue = Boolean(
+    patient.first_name.trim() &&
+      patient.surname.trim() &&
+      patient.email.trim() &&
+      patient.mobile_number.trim() &&
+      patient.identity_number.trim() &&
+      patient.date_of_birth &&
+      patient.gender &&
+      reason &&
+      consent
+  );
 
-  function updatePatient(
-    field: keyof PatientDetails,
-    value: string
+  function handleSubmit(
+    event: FormEvent<HTMLFormElement>
   ) {
-    setPatient((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    event.preventDefault();
+
+    if (!canContinue) return;
+
+    const referralDraft = {
+      patient,
+      consultation_reason: reason,
+
+      consultation_fee: 250,
+
+      assessment,
+
+      source: "HIVClinTest",
+
+      payment_status: "not_started",
+
+      referral_status:
+        "awaiting_payment",
+
+      created_at:
+        new Date().toISOString(),
+    };
+
+    /*
+     * Save ONE complete referral draft.
+     *
+     * This is what we will send to the
+     * server when Stripe is connected.
+     */
+    window.sessionStorage.setItem(
+      "hivclintest_virtual_gp_referral",
+      JSON.stringify(referralDraft)
+    );
+
+    console.log(
+      "Virtual GP referral ready:",
+      referralDraft
+    );
+
+    /*
+     * IMPORTANT:
+     *
+     * We deliberately DO NOT create the
+     * CareScriber referral here.
+     *
+     * Next step:
+     *
+     * Stripe Checkout
+     *       ↓
+     * server verifies payment
+     *       ↓
+     * CareScriber Inbox
+     */
+
+    alert(
+      "Patient details are ready. Stripe payment will be connected next."
+    );
   }
 
-  /*
-   * ---------------------------------------------------------
-   * VALIDATION
-   * ---------------------------------------------------------
-   */
-
-  const formValid =
-    patient.firstName.trim() !== "" &&
-    patient.surname.trim() !== "" &&
-    patient.email.trim() !== "" &&
-    patient.mobile.trim() !== "" &&
-    consultationReason !== "" &&
-    consent;
-
-  /*
-   * ---------------------------------------------------------
-   * PAYMENT
-   * ---------------------------------------------------------
-   *
-   * IMPORTANT:
-   *
-   * We DO NOT send the patient to CareScriber yet.
-   *
-   * Correct flow:
-   *
-   * 1. Save referral information
-   * 2. Create Stripe Checkout
-   * 3. Patient pays
-   * 4. Stripe confirms payment
-   * 5. Server verifies payment
-   * 6. THEN send referral to CareScriber inbox
-   *
-   * This prevents unpaid referrals appearing in CareScriber.
-   */
-
-  async function startPayment() {
-    setError("");
-
-    if (!formValid) {
-      setError(
-        "Please complete the required fields, select a consultation reason and accept the consent statement."
-      );
-      return;
-    }
-
-    try {
-      setLoading(true);
-
-      const updatedAssessment: Assessment = {
-        ...(assessment || {}),
-        carePreference: "Virtual GP",
-        consultationReason,
-        consultationFee: CONSULTATION_FEE,
-      };
-
-      /*
-       * Save locally so that we can recover the journey
-       * after returning from Stripe.
-       */
-
-      sessionStorage.setItem(
-        "hivclintest_assessment",
-        JSON.stringify(updatedAssessment)
-      );
-
-      sessionStorage.setItem(
-        "hivclintest_patient",
-        JSON.stringify(patient)
-      );
-
-      const referralPayload = {
-        source: "HIVClinTest",
-
-        patient: {
-          firstName: patient.firstName.trim(),
-          surname: patient.surname.trim(),
-          email: patient.email.trim(),
-          mobile: patient.mobile.trim(),
-          idNumber: patient.idNumber.trim(),
-          dateOfBirth: patient.dateOfBirth,
-          gender: patient.gender,
-        },
-
-        consultation: {
-          reason: consultationReason,
-          fee: CONSULTATION_FEE,
-          currency: "ZAR",
-        },
-
-        assessment: updatedAssessment,
-
-        createdAt: new Date().toISOString(),
-      };
-
-      /*
-       * Store a copy of exactly what should eventually
-       * be sent to CareScriber.
-       */
-
-      sessionStorage.setItem(
-        "hivclintest_pending_referral",
-        JSON.stringify(referralPayload)
-      );
-
-      /*
-       * -----------------------------------------------------
-       * CALL CHECKOUT API
-       * -----------------------------------------------------
-       */
-
-      const response = await fetch(
-        "/api/create-checkout-session",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(referralPayload),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data?.error ||
-            "Unable to start the payment process."
-        );
-      }
-
-      /*
-       * API should return:
-       *
-       * {
-       *   url: "https://checkout.stripe.com/..."
-       * }
-       */
-
-      if (!data?.url) {
-        throw new Error(
-          "Stripe Checkout URL was not returned."
-        );
-      }
-
-      window.location.href = data.url;
-    } catch (err) {
-      console.error("Payment error:", err);
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to start payment. Please try again."
-      );
-
-      setLoading(false);
-    }
+  if (!loaded) {
+    return (
+      <main
+        style={{
+          minHeight: "100vh",
+          display: "grid",
+          placeItems: "center",
+          fontFamily:
+            "Arial, sans-serif",
+        }}
+      >
+        Loading patient details...
+      </main>
+    );
   }
 
   return (
     <main
       style={{
         minHeight: "100vh",
-        background:
-          "linear-gradient(180deg, #f7fffb 0%, #ffffff 55%, #f8fafc 100%)",
+        background: "#ffffff",
         fontFamily:
           "Arial, Helvetica, sans-serif",
-        color: "#102a2a",
-        padding: "40px 18px 80px",
+        color: "#172b35",
       }}
     >
       <div
         style={{
-          maxWidth: "820px",
+          maxWidth: "1000px",
           margin: "0 auto",
+          padding: "32px 22px 80px",
         }}
       >
-        {/* HEADER */}
+        <Link
+          href="/assessment"
+          style={{
+            color: "#176b67",
+            textDecoration: "none",
+            fontWeight: 700,
+          }}
+        >
+          ← Back
+        </Link>
 
         <div
           style={{
-            marginBottom: "28px",
+            marginTop: "32px",
+            marginBottom: "35px",
           }}
         >
-          <div
+          <p
             style={{
-              fontSize: "13px",
+              margin: 0,
+              color: "#16837c",
               fontWeight: 800,
+              textTransform: "uppercase",
               letterSpacing: "1.5px",
-              color: "#0f766e",
-              marginBottom: "10px",
+              fontSize: "13px",
             }}
           >
-            HIVCLINTEST
-          </div>
+            Virtual GP
+          </p>
 
           <h1
             style={{
-              margin: 0,
-              fontSize: "36px",
-              lineHeight: 1.15,
-              fontWeight: 900,
-              color: "#17324d",
+              margin: "8px 0 10px",
+              fontSize: "42px",
+              lineHeight: 1.1,
             }}
           >
             Virtual GP Consultation
@@ -396,593 +402,565 @@ export default function VirtualGPPage() {
 
           <p
             style={{
-              marginTop: "12px",
-              marginBottom: 0,
-              fontSize: "17px",
-              lineHeight: 1.6,
-              color: "#64748b",
+              fontSize: "18px",
+              color: "#66767c",
+              margin: 0,
             }}
           >
-            Speak privately with a GP about HIV prevention,
-            PEP, PrEP, your HIV test or sexual health.
+            Review your details and request a
+            private consultation with a GP.
           </p>
         </div>
 
-        {/* PEP URGENT MESSAGE */}
-
-        {pepUrgent && (
+        {assessment?.pepUrgent && (
           <div
             style={{
-              border: "2px solid #ef4444",
-              background: "#fff7f7",
+              border:
+                "2px solid #ef9c8d",
+              background: "#fff7f5",
               borderRadius: "18px",
               padding: "22px",
-              marginBottom: "24px",
+              marginBottom: "28px",
             }}
           >
-            <div
+            <strong
               style={{
-                fontSize: "12px",
-                fontWeight: 900,
-                letterSpacing: "1.5px",
-                color: "#dc2626",
+                display: "block",
+                color: "#a13b2c",
                 marginBottom: "8px",
               }}
             >
-              URGENT
-            </div>
-
-            <h2
-              style={{
-                margin: "0 0 8px",
-                fontSize: "22px",
-                color: "#991b1b",
-              }}
-            >
-              Possible PEP assessment
-            </h2>
+              URGENT — Possible PEP assessment
+            </strong>
 
             <p
               style={{
                 margin: 0,
                 lineHeight: 1.6,
-                color: "#7f1d1d",
               }}
             >
-              Your assessment indicates a possible recent HIV
-              exposure. PEP is time-sensitive and should be
-              started as soon as possible when clinically
-              appropriate.
+              Your assessment indicates a
+              possible recent HIV exposure.
+              Clinical assessment should not
+              be delayed.
             </p>
           </div>
         )}
 
-        {/* CONSULTATION CARD */}
-
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #dce7e5",
-            borderRadius: "24px",
-            padding: "28px",
-            boxShadow:
-              "0 12px 35px rgba(15, 118, 110, 0.08)",
-            marginBottom: "22px",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "20px",
-              alignItems: "flex-start",
-              flexWrap: "wrap",
-            }}
-          >
-            <div>
-              <div
-                style={{
-                  fontSize: "13px",
-                  color: "#64748b",
-                  fontWeight: 700,
-                  marginBottom: "6px",
-                }}
-              >
-                CONSULTATION FEE
-              </div>
-
-              <div
-                style={{
-                  fontSize: "38px",
-                  fontWeight: 900,
-                  color: "#17324d",
-                }}
-              >
-                R250
-              </div>
-
-              <div
-                style={{
-                  color: "#64748b",
-                  marginTop: "4px",
-                }}
-              >
-                Virtual consultation with a GP
-              </div>
-            </div>
-
-            <div
-              style={{
-                padding: "10px 16px",
-                borderRadius: "999px",
-                background: "#ecfdf5",
-                color: "#047857",
-                fontWeight: 800,
-                fontSize: "13px",
-              }}
-            >
-              Secure online consultation
-            </div>
-          </div>
-        </section>
-
-        {/* ASSESSMENT SUMMARY */}
-
-        {assessment && (
+        <form onSubmit={handleSubmit}>
           <section
             style={{
-              background: "#f8fafc",
-              border: "1px solid #e2e8f0",
+              border:
+                "1px solid #dce6e5",
               borderRadius: "20px",
-              padding: "22px",
-              marginBottom: "22px",
+              padding: "28px",
+              marginBottom: "25px",
             }}
           >
             <h2
               style={{
-                margin: "0 0 14px",
-                fontSize: "19px",
-                color: "#17324d",
+                marginTop: 0,
+                marginBottom: "6px",
               }}
             >
-              Your assessment
+              Your details
             </h2>
+
+            <p
+              style={{
+                color: "#718087",
+                marginTop: 0,
+                marginBottom: "25px",
+              }}
+            >
+              These details were entered when
+              you registered. Please review
+              them before continuing.
+            </p>
 
             <div
               style={{
                 display: "grid",
                 gridTemplateColumns:
-                  "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: "12px",
+                  "repeat(auto-fit, minmax(230px, 1fr))",
+                gap: "20px",
               }}
             >
-              <SummaryItem
-                label="Exposure"
-                value={
-                  assessment.exposureTiming ||
-                  "Not specified"
+              <Field
+                label="First name"
+                value={patient.first_name}
+                required
+                onChange={(value) =>
+                  updatePatient(
+                    "first_name",
+                    value
+                  )
                 }
               />
 
-              <SummaryItem
-                label="Risk indicators"
-                value={String(riskCount)}
+              <Field
+                label="Surname"
+                value={patient.surname}
+                required
+                onChange={(value) =>
+                  updatePatient(
+                    "surname",
+                    value
+                  )
+                }
               />
 
-              <SummaryItem
-                label="Symptoms reported"
-                value={String(symptomCount)}
+              <Field
+                label="Email"
+                value={patient.email}
+                type="email"
+                required
+                onChange={(value) =>
+                  updatePatient(
+                    "email",
+                    value
+                  )
+                }
+              />
+
+              <Field
+                label="Mobile number"
+                value={
+                  patient.mobile_number
+                }
+                type="tel"
+                required
+                onChange={(value) =>
+                  updatePatient(
+                    "mobile_number",
+                    value
+                  )
+                }
+              />
+
+              <Field
+                label="ID / Passport number"
+                value={
+                  patient.identity_number
+                }
+                required
+                onChange={(value) =>
+                  updatePatient(
+                    "identity_number",
+                    value
+                  )
+                }
+              />
+
+              <Field
+                label="Date of birth"
+                value={
+                  patient.date_of_birth
+                }
+                type="date"
+                required
+                onChange={(value) =>
+                  updatePatient(
+                    "date_of_birth",
+                    value
+                  )
+                }
+              />
+
+              <label
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                  fontWeight: 700,
+                }}
+              >
+                Gender *
+
+                <select
+                  required
+                  value={patient.gender}
+                  onChange={(event) =>
+                    updatePatient(
+                      "gender",
+                      event.target.value
+                    )
+                  }
+                  style={inputStyle}
+                >
+                  <option value="">
+                    Select gender
+                  </option>
+
+                  <option value="Male">
+                    Male
+                  </option>
+
+                  <option value="Female">
+                    Female
+                  </option>
+
+                  <option value="Other">
+                    Other
+                  </option>
+
+                  <option value="Prefer not to say">
+                    Prefer not to say
+                  </option>
+                </select>
+              </label>
+
+              <Field
+                label="Country"
+                value={patient.country}
+                onChange={(value) =>
+                  updatePatient(
+                    "country",
+                    value
+                  )
+                }
               />
             </div>
           </section>
-        )}
 
-        {/* PATIENT DETAILS */}
-
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #dce7e5",
-            borderRadius: "24px",
-            padding: "28px",
-            marginBottom: "22px",
-          }}
-        >
-          <h2
-            style={{
-              margin: "0 0 8px",
-              fontSize: "23px",
-              color: "#17324d",
-            }}
-          >
-            Your details
-          </h2>
-
-          <p
-            style={{
-              margin: "0 0 24px",
-              color: "#64748b",
-              lineHeight: 1.5,
-            }}
-          >
-            The GP will use these details to contact you.
-          </p>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns:
-                "repeat(auto-fit, minmax(240px, 1fr))",
-              gap: "18px",
-            }}
-          >
-            <InputField
-              label="First name *"
-              value={patient.firstName}
-              onChange={(value) =>
-                updatePatient("firstName", value)
-              }
-            />
-
-            <InputField
-              label="Surname *"
-              value={patient.surname}
-              onChange={(value) =>
-                updatePatient("surname", value)
-              }
-            />
-
-            <InputField
-              label="Email *"
-              type="email"
-              value={patient.email}
-              onChange={(value) =>
-                updatePatient("email", value)
-              }
-            />
-
-            <InputField
-              label="Mobile number *"
-              type="tel"
-              value={patient.mobile}
-              onChange={(value) =>
-                updatePatient("mobile", value)
-              }
-            />
-
-            <InputField
-              label="ID / Passport number"
-              value={patient.idNumber}
-              onChange={(value) =>
-                updatePatient("idNumber", value)
-              }
-            />
-
-            <InputField
-              label="Date of birth"
-              type="date"
-              value={patient.dateOfBirth}
-              onChange={(value) =>
-                updatePatient("dateOfBirth", value)
-              }
-            />
-
-            <div>
-              <label style={labelStyle}>
-                Gender
-              </label>
-
-              <select
-                value={patient.gender}
-                onChange={(event) =>
-                  updatePatient(
-                    "gender",
-                    event.target.value
-                  )
-                }
-                style={inputStyle}
-              >
-                <option value="">
-                  Select gender
-                </option>
-                <option value="Female">
-                  Female
-                </option>
-                <option value="Male">
-                  Male
-                </option>
-                <option value="Other">
-                  Other
-                </option>
-                <option value="Prefer not to say">
-                  Prefer not to say
-                </option>
-              </select>
-            </div>
-          </div>
-        </section>
-
-        {/* CONSULTATION REASON */}
-
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #dce7e5",
-            borderRadius: "24px",
-            padding: "28px",
-            marginBottom: "22px",
-          }}
-        >
-          <h2
-            style={{
-              margin: "0 0 8px",
-              fontSize: "23px",
-              color: "#17324d",
-            }}
-          >
-            What would you like help with?
-          </h2>
-
-          <p
-            style={{
-              margin: "0 0 20px",
-              color: "#64748b",
-            }}
-          >
-            Select the main reason for your consultation.
-          </p>
-
-          <div
-            style={{
-              display: "grid",
-              gap: "12px",
-            }}
-          >
-            {consultationReasons.map((reason) => {
-              const selected =
-                consultationReason === reason.value;
-
-              return (
-                <button
-                  key={reason.value}
-                  type="button"
-                  onClick={() =>
-                    setConsultationReason(
-                      reason.value
-                    )
-                  }
-                  style={{
-                    width: "100%",
-                    textAlign: "left",
-                    padding: "18px",
-                    borderRadius: "16px",
-                    cursor: "pointer",
-                    background: selected
-                      ? "#ecfdf5"
-                      : "#ffffff",
-                    border: selected
-                      ? "2px solid #10b981"
-                      : "1px solid #dbe4e6",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "13px",
-                      alignItems: "flex-start",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: "20px",
-                        height: "20px",
-                        borderRadius: "50%",
-                        border: selected
-                          ? "6px solid #10b981"
-                          : "2px solid #94a3b8",
-                        boxSizing: "border-box",
-                        marginTop: "2px",
-                        flexShrink: 0,
-                      }}
-                    />
-
-                    <div>
-                      <div
-                        style={{
-                          fontSize: "16px",
-                          fontWeight: 800,
-                          color: "#17324d",
-                        }}
-                      >
-                        {reason.label}
-                      </div>
-
-                      <div
-                        style={{
-                          marginTop: "4px",
-                          fontSize: "14px",
-                          lineHeight: 1.4,
-                          color: "#64748b",
-                        }}
-                      >
-                        {reason.description}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* CONSENT */}
-
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #dce7e5",
-            borderRadius: "20px",
-            padding: "22px",
-            marginBottom: "22px",
-          }}
-        >
-          <label
-            style={{
-              display: "flex",
-              gap: "14px",
-              cursor: "pointer",
-              alignItems: "flex-start",
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={consent}
-              onChange={(event) =>
-                setConsent(event.target.checked)
-              }
+          {assessment && (
+            <section
               style={{
-                width: "20px",
-                height: "20px",
-                marginTop: "2px",
-                accentColor: "#10b981",
-              }}
-            />
-
-            <span
-              style={{
-                lineHeight: 1.55,
-                color: "#475569",
-                fontSize: "14px",
+                border:
+                  "1px solid #dce6e5",
+                borderRadius: "20px",
+                padding: "25px",
+                marginBottom: "25px",
+                background: "#f9fcfb",
               }}
             >
-              I consent to my information and HIVClinTest
-              assessment being shared securely with the
-              healthcare provider for the purpose of arranging
-              and conducting this consultation.
-            </span>
-          </label>
-        </section>
+              <h2
+                style={{
+                  marginTop: 0,
+                }}
+              >
+                Assessment summary
+              </h2>
 
-        {/* ERROR */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: "15px",
+                }}
+              >
+                <SummaryItem
+                  label="Exposure"
+                  value={
+                    assessment.exposureTiming ||
+                    "Not recorded"
+                  }
+                />
 
-        {error && (
+                <SummaryItem
+                  label="PEP urgency"
+                  value={
+                    assessment.pepUrgent
+                      ? "Urgent"
+                      : "No urgent PEP flag"
+                  }
+                />
+
+                <SummaryItem
+                  label="Risk factors"
+                  value={String(riskCount)}
+                />
+
+                <SummaryItem
+                  label="Symptoms"
+                  value={String(
+                    symptomCount
+                  )}
+                />
+              </div>
+            </section>
+          )}
+
+          <section
+            style={{
+              border:
+                "1px solid #dce6e5",
+              borderRadius: "20px",
+              padding: "28px",
+              marginBottom: "25px",
+            }}
+          >
+            <h2
+              style={{
+                marginTop: 0,
+              }}
+            >
+              What would you like help with?
+            </h2>
+
+            <p
+              style={{
+                color: "#718087",
+              }}
+            >
+              Select the main reason for your
+              consultation.
+            </p>
+
+            <div
+              style={{
+                display: "grid",
+                gap: "12px",
+                marginTop: "20px",
+              }}
+            >
+              {consultationReasons.map(
+                (item) => (
+                  <label
+                    key={item.value}
+                    style={{
+                      border:
+                        reason === item.value
+                          ? "2px solid #17a398"
+                          : "1px solid #dce6e5",
+                      borderRadius: "15px",
+                      padding: "18px",
+                      display: "flex",
+                      gap: "14px",
+                      cursor: "pointer",
+                      background:
+                        reason === item.value
+                          ? "#f2fffc"
+                          : "#ffffff",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="consultation_reason"
+                      value={item.value}
+                      checked={
+                        reason === item.value
+                      }
+                      onChange={() =>
+                        setReason(item.value)
+                      }
+                    />
+
+                    <span>
+                      <strong
+                        style={{
+                          display: "block",
+                          marginBottom: "5px",
+                        }}
+                      >
+                        {item.title}
+                      </strong>
+
+                      <span
+                        style={{
+                          color: "#718087",
+                        }}
+                      >
+                        {item.description}
+                      </span>
+                    </span>
+                  </label>
+                )
+              )}
+            </div>
+          </section>
+
+          <section
+            style={{
+              border:
+                "1px solid #dce6e5",
+              borderRadius: "20px",
+              padding: "25px",
+              marginBottom: "25px",
+            }}
+          >
+            <label
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "12px",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(event) =>
+                  setConsent(
+                    event.target.checked
+                  )
+                }
+                style={{
+                  marginTop: "4px",
+                  width: "19px",
+                  height: "19px",
+                }}
+              />
+
+              <span
+                style={{
+                  lineHeight: 1.6,
+                }}
+              >
+                I consent to my registration
+                details and HIV assessment
+                information being shared with
+                the healthcare professional
+                providing this consultation.
+              </span>
+            </label>
+          </section>
+
           <div
             style={{
-              padding: "16px 18px",
-              borderRadius: "14px",
-              background: "#fef2f2",
-              border: "1px solid #fecaca",
-              color: "#b91c1c",
-              fontWeight: 700,
-              marginBottom: "18px",
-              lineHeight: 1.5,
+              background: "#f7faf9",
+              borderRadius: "20px",
+              padding: "25px",
             }}
           >
-            {error}
+            <div
+              style={{
+                display: "flex",
+                justifyContent:
+                  "space-between",
+                alignItems: "center",
+                gap: "20px",
+                flexWrap: "wrap",
+                marginBottom: "18px",
+              }}
+            >
+              <div>
+                <strong
+                  style={{
+                    fontSize: "20px",
+                  }}
+                >
+                  Virtual GP Consultation
+                </strong>
+
+                <div
+                  style={{
+                    color: "#718087",
+                    marginTop: "5px",
+                  }}
+                >
+                  Secure online consultation
+                </div>
+              </div>
+
+              <strong
+                style={{
+                  fontSize: "28px",
+                }}
+              >
+                R250
+              </strong>
+            </div>
+
+            <button
+              type="submit"
+              disabled={!canContinue}
+              style={{
+                width: "100%",
+                border: 0,
+                borderRadius: "15px",
+                padding: "19px 22px",
+                fontSize: "18px",
+                fontWeight: 900,
+
+                background: canContinue
+                  ? "#39ff14"
+                  : "#d9e2df",
+
+                color: canContinue
+                  ? "#12352d"
+                  : "#899591",
+
+                cursor: canContinue
+                  ? "pointer"
+                  : "not-allowed",
+
+                boxShadow: canContinue
+                  ? "0 0 22px rgba(57,255,20,.35)"
+                  : "none",
+              }}
+            >
+              Pay R250 & Request Virtual GP
+            </button>
+
+            <p
+              style={{
+                textAlign: "center",
+                color: "#718087",
+                fontSize: "13px",
+                marginBottom: 0,
+              }}
+            >
+              The consultation request will
+              only be submitted after payment
+              has been successfully verified.
+            </p>
           </div>
-        )}
-
-        {/* PAYMENT */}
-
-        <button
-          type="button"
-          onClick={startPayment}
-          disabled={loading}
-          style={{
-            width: "100%",
-            border: "none",
-            borderRadius: "18px",
-            padding: "22px 20px",
-
-            /*
-             * SymptomAI-style neon green CTA
-             */
-
-            background: loading
-              ? "#94a3b8"
-              : "#39ff14",
-
-            color: loading
-              ? "#ffffff"
-              : "#052e16",
-
-            fontSize: "19px",
-            fontWeight: 900,
-            cursor: loading
-              ? "not-allowed"
-              : "pointer",
-
-            boxShadow: loading
-              ? "none"
-              : "0 8px 25px rgba(57,255,20,0.30)",
-          }}
-        >
-          {loading
-            ? "Preparing secure payment..."
-            : "Pay R250 & Request Virtual GP"}
-        </button>
-
-        <div
-          style={{
-            textAlign: "center",
-            marginTop: "13px",
-            color: "#64748b",
-            fontSize: "13px",
-            lineHeight: 1.5,
-          }}
-        >
-          Secure payment. Your GP referral will only be
-          submitted after payment has been confirmed.
-        </div>
-
-        {/* BACK */}
-
-        <div
-          style={{
-            marginTop: "28px",
-            textAlign: "center",
-          }}
-        >
-          <Link
-            href="/assessment"
-            style={{
-              color: "#0f766e",
-              fontWeight: 800,
-              textDecoration: "none",
-            }}
-          >
-            ← Back to assessment
-          </Link>
-        </div>
-
-        {/* DISCLAIMER */}
-
-        <div
-          style={{
-            marginTop: "38px",
-            paddingTop: "22px",
-            borderTop: "1px solid #e2e8f0",
-            textAlign: "center",
-            color: "#94a3b8",
-            fontSize: "12px",
-            lineHeight: 1.6,
-          }}
-        >
-          HIVClinTest provides digital health support and does
-          not replace emergency medical care. If you are
-          seriously unwell or require urgent assistance, seek
-          appropriate emergency medical care.
-        </div>
+        </form>
       </div>
     </main>
   );
 }
 
-/*
- * -----------------------------------------------------------
- * SMALL COMPONENTS
- * -----------------------------------------------------------
- */
+const inputStyle = {
+  width: "100%",
+  boxSizing: "border-box" as const,
+  padding: "14px 15px",
+  borderRadius: "11px",
+  border: "1px solid #cad7d5",
+  background: "#ffffff",
+  fontSize: "16px",
+  color: "#172b35",
+};
+
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  required = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  required?: boolean;
+}) {
+  return (
+    <label
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        fontWeight: 700,
+      }}
+    >
+      {label}
+      {required ? " *" : ""}
+
+      <input
+        type={type}
+        required={required}
+        value={value}
+        onChange={(event) =>
+          onChange(event.target.value)
+        }
+        style={inputStyle}
+      />
+    </label>
+  );
+}
 
 function SummaryItem({
   label,
@@ -995,81 +973,24 @@ function SummaryItem({
     <div
       style={{
         background: "#ffffff",
-        border: "1px solid #e2e8f0",
-        borderRadius: "14px",
+        border: "1px solid #e0e9e7",
+        borderRadius: "12px",
         padding: "15px",
       }}
     >
       <div
         style={{
-          fontSize: "11px",
+          color: "#718087",
+          fontSize: "12px",
+          textTransform: "uppercase",
           fontWeight: 800,
-          color: "#94a3b8",
-          letterSpacing: "0.7px",
-          marginBottom: "5px",
+          marginBottom: "6px",
         }}
       >
-        {label.toUpperCase()}
-      </div>
-
-      <div
-        style={{
-          fontSize: "15px",
-          fontWeight: 800,
-          color: "#17324d",
-        }}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function InputField({
-  label,
-  value,
-  onChange,
-  type = "text",
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-}) {
-  return (
-    <div>
-      <label style={labelStyle}>
         {label}
-      </label>
+      </div>
 
-      <input
-        type={type}
-        value={value}
-        onChange={(event) =>
-          onChange(event.target.value)
-        }
-        style={inputStyle}
-      />
+      <strong>{value}</strong>
     </div>
   );
 }
-
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  marginBottom: "7px",
-  fontSize: "13px",
-  fontWeight: 800,
-  color: "#475569",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "14px 15px",
-  border: "1px solid #cbd5e1",
-  borderRadius: "12px",
-  background: "#ffffff",
-  color: "#0f172a",
-  fontSize: "15px",
-  outline: "none",
-};
