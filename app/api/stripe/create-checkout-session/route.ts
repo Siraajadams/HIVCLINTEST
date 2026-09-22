@@ -57,12 +57,15 @@ export async function POST(request: Request) {
       requestUrl.origin;
 
     const session =
-      await stripe.checkout.sessions.create({
-        mode: "payment",
+  await stripe.checkout.sessions.create({
+    mode: "payment",
 
-        payment_method_types: [
-          "card",
-        ],
+    // Allow patients to enter Stripe promotion codes
+    allow_promotion_codes: true,
+
+    payment_method_types: [
+      "card",
+    ],
 
         customer_email:
           patient.email,
