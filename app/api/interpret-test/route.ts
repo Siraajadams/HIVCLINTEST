@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+"use client";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import Link from "next/link";
+import { ChangeEvent, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
-type TestType = "mylan_atomo" | "oraquick";
-
-type TestResult =
+type InterpretationResult =
   | "non_reactive"
   | "reactive"
   | "invalid"
@@ -13,668 +12,887 @@ type TestResult =
 
 type Confidence = "high" | "medium" | "low";
 
-interface InterpretationRequest {
-  image: string;
-  selected_test: TestType;
-}
-
-interface InterpretationResponse {
-  result: TestResult;
+type InterpretationResponse = {
+  result: InterpretationResult;
   confidence: Confidence;
   reason: string;
-  test_type: string;
-  test_detected: boolean;
-  retake_photo: boolean;
-}
+  test_type?: string;
+  retake_photo?: boolean;
+  error?: string;
+};
 
-/**
- * Maximum image size accepted by this endpoint.
- */
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export default function TestPhotoPage() {
+  const router = useRouter();
 
-/**
- * Only allow image formats that we expect from the
- * browser camera / image upload.
- */
-const IMAGE_REGEX =
-  /^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\r\n]+)$/;
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-/**
- * Validate the model output.
- */
-function isValidResult(
-  value: unknown
-): value is TestResult {
-  return (
-    value === "non_reactive" ||
-    value === "reactive" ||
-    value === "invalid" ||
-    value === "uncertain"
-  );
-}
+  const [selectedTest, setSelectedTest] = useState<
+    "mylan_atomo" | "oraquick"
+  >("mylan_atomo");
 
-function isValidConfidence(
-  value: unknown
-): value is Confidence {
-  return (
-    value === "high" ||
-    value === "medium" ||
-    value === "low"
-  );
-}
+  const [imagePreview, setImagePreview] = useState("");
+  const [imageData, setImageData] = useState("");
 
-export async function POST(
-  request: NextRequest
-) {
-  try {
-    /*
-    ----------------------------------------
-    1. READ REQUEST
-    ----------------------------------------
-    */
+  const [loading, setLoading] = useState(false);
+  const [processingPhoto, setProcessingPhoto] = useState(false);
 
-    let body: InterpretationRequest;
+  const [error, setError] = useState("");
+  const [result, setResult] =
+    useState<InterpretationResponse | null>(null);
+
+  // -------------------------------------------------------
+  // OPEN CAMERA / PHOTO PICKER
+  // -------------------------------------------------------
+
+  function openCamera() {
+    setError("");
+    setResult(null);
+
+    if (!fileInputRef.current) return;
+
+    // Important on mobile:
+    // clear the previous file so selecting / taking the
+    // same image again still triggers onChange.
+    fileInputRef.current.value = "";
+
+    fileInputRef.current.click();
+  }
+
+  // -------------------------------------------------------
+  // CHOOSE DIFFERENT PHOTO
+  // -------------------------------------------------------
+
+  function chooseDifferentPhoto() {
+    setError("");
+    setResult(null);
+    setImagePreview("");
+    setImageData("");
+
+    if (!fileInputRef.current) return;
+
+    fileInputRef.current.value = "";
+
+    // Small delay improves reliability on some mobile browsers.
+    setTimeout(() => {
+      fileInputRef.current?.click();
+    }, 100);
+  }
+
+  // -------------------------------------------------------
+  // FILE SELECTED
+  // -------------------------------------------------------
+
+  async function handlePhotoChange(
+    event: ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setError("");
+    setResult(null);
+    setProcessingPhoto(true);
 
     try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json(
-        {
-          error: "Invalid request body.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    const image = body?.image;
-    const selectedTest = body?.selected_test;
-
-    /*
-    ----------------------------------------
-    2. VALIDATE INPUT
-    ----------------------------------------
-    */
-
-    if (!image) {
-      return NextResponse.json(
-        {
-          error: "No test image was provided.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    if (!selectedTest) {
-      return NextResponse.json(
-        {
-          error: "No HIV self-test type was selected.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    if (
-      !["mylan_atomo", "oraquick"].includes(
-        selectedTest
-      )
-    ) {
-      return NextResponse.json(
-        {
-          error: "Invalid HIV self-test type.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    /*
-    ----------------------------------------
-    3. VALIDATE IMAGE
-    ----------------------------------------
-    */
-
-    const imageMatch =
-      image.match(IMAGE_REGEX);
-
-    if (!imageMatch) {
-      return NextResponse.json(
-        {
-          error:
-            "The photo format is not supported. Please take another photo.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    try {
-      const base64Data =
-        imageMatch[2].replace(/\s/g, "");
-
-      const imageBytes =
-        Buffer.from(
-          base64Data,
-          "base64"
-        ).byteLength;
-
-      if (
-        imageBytes >
-        MAX_IMAGE_BYTES
-      ) {
-        return NextResponse.json(
-          {
-            error:
-              "The photo is too large. Please take another photo.",
-          },
-          {
-            status: 413,
-          }
+      if (!file.type.startsWith("image/")) {
+        throw new Error(
+          "Please select or take a photo."
         );
       }
-    } catch {
-      return NextResponse.json(
-        {
-          error:
-            "The test photo could not be processed.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
 
-    /*
-    ----------------------------------------
-    4. OPENAI CONFIGURATION
-    ----------------------------------------
-    */
+      /*
+       * Mobile camera images can easily be 5–15 MB.
+       *
+       * We resize/compress before sending the image
+       * to the API.
+       */
 
-    const apiKey =
-      process.env.OPENAI_API_KEY?.trim();
+      const compressedImage =
+        await compressImage(file);
 
-    if (!apiKey) {
+      setImageData(compressedImage);
+      setImagePreview(compressedImage);
+    } catch (err) {
       console.error(
-        "OPENAI_API_KEY is not configured."
+        "Photo processing error:",
+        err
       );
 
-      return NextResponse.json(
-        {
-          error:
-            "The test interpretation service is temporarily unavailable.",
-        },
-        {
-          status: 500,
-        }
+      setImageData("");
+      setImagePreview("");
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "We could not process this photo. Please take another photo."
       );
+    } finally {
+      setProcessingPhoto(false);
+    }
+  }
+
+  // -------------------------------------------------------
+  // COMPRESS MOBILE IMAGE
+  // -------------------------------------------------------
+
+  async function compressImage(
+    file: File
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+
+      reader.onerror = () => {
+        reject(
+          new Error(
+            "Unable to read the photo. Please try again."
+          )
+        );
+      };
+
+      reader.onload = () => {
+        if (
+          !reader.result ||
+          typeof reader.result !== "string"
+        ) {
+          reject(
+            new Error(
+              "Unable to read the photo."
+            )
+          );
+          return;
+        }
+
+        const img = new Image();
+
+        img.onerror = () => {
+          reject(
+            new Error(
+              "Unable to process this image. Please take another photo."
+            )
+          );
+        };
+
+        img.onload = () => {
+          try {
+            /*
+             * 1600px is more than enough for the
+             * HIV test result window while keeping
+             * mobile uploads manageable.
+             */
+
+            const MAX_SIZE = 1600;
+
+            let width = img.naturalWidth;
+            let height = img.naturalHeight;
+
+            if (!width || !height) {
+              reject(
+                new Error(
+                  "The selected photo could not be read."
+                )
+              );
+              return;
+            }
+
+            if (
+              width > MAX_SIZE ||
+              height > MAX_SIZE
+            ) {
+              const scale = Math.min(
+                MAX_SIZE / width,
+                MAX_SIZE / height
+              );
+
+              width = Math.round(
+                width * scale
+              );
+
+              height = Math.round(
+                height * scale
+              );
+            }
+
+            const canvas =
+              document.createElement("canvas");
+
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx =
+              canvas.getContext("2d");
+
+            if (!ctx) {
+              reject(
+                new Error(
+                  "Your browser could not process the photo."
+                )
+              );
+              return;
+            }
+
+            // White background prevents transparent
+            // areas becoming black.
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(
+              0,
+              0,
+              width,
+              height
+            );
+
+            ctx.drawImage(
+              img,
+              0,
+              0,
+              width,
+              height
+            );
+
+            /*
+             * JPEG substantially reduces mobile
+             * camera upload size.
+             */
+
+            const compressed =
+              canvas.toDataURL(
+                "image/jpeg",
+                0.82
+              );
+
+            resolve(compressed);
+          } catch (err) {
+            reject(err);
+          }
+        };
+
+        img.src = reader.result;
+      };
+
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // -------------------------------------------------------
+  // INTERPRET TEST
+  // -------------------------------------------------------
+
+  async function interpretTest() {
+    if (!imageData) {
+      setError(
+        "Please take or select a photo of your HIV self-test first."
+      );
+      return;
     }
 
-    /*
-    ----------------------------------------
-    5. TEST TYPE
-    ----------------------------------------
-    */
+    setLoading(true);
+    setError("");
+    setResult(null);
 
-    const testTypeLabel =
-      selectedTest === "mylan_atomo"
-        ? "Mylan Atomo HIV Self Test"
-        : "OraQuick HIV Self-Test";
-
-    /*
-    ----------------------------------------
-    6. MODEL INSTRUCTIONS
-    ----------------------------------------
-    */
-
-    const systemPrompt = `
-You are a visual screening assistant for HIVClinTest.
-
-Your task is ONLY to inspect a photograph of an HIV self-test device and describe the visible test result.
-
-You are NOT diagnosing HIV.
-
-The selected test is:
-
-${testTypeLabel}
-
-FIRST determine whether the photograph actually contains a sufficiently visible HIV self-test device and result window.
-
-If:
-- no HIV self-test device is visible,
-- the camera is pointed at a person or room,
-- only packaging is visible,
-- the result window is outside the photograph,
-- the device is too far away,
-- the result window is substantially cropped,
-- glare prevents interpretation,
-- the image is too blurry,
-- lighting prevents interpretation,
-
-then return:
-
-{
-  "result": "uncertain",
-  "confidence": "low",
-  "reason": "The HIV self-test result window is not clearly visible. Please retake the photo with the test device and complete result window clearly visible.",
-  "test_detected": false,
-  "retake_photo": true
-}
-
-Do NOT guess a test result when the test device cannot be clearly identified.
-
------------------------------------
-RESULT CLASSIFICATION
------------------------------------
-
-If a test device and result window ARE clearly visible, inspect the control and test indicators.
-
-Classify the visual appearance as one of:
-
-"non_reactive"
-"reactive"
-"invalid"
-"uncertain"
-
-NON_REACTIVE
-
-Use "non_reactive" only when the expected control indicator is clearly present and the visual appearance corresponds to a non-reactive result for the selected test.
-
-REACTIVE
-
-Use "reactive" only when the expected control indicator is present and the test indicator is also visible in a pattern corresponding to a reactive result.
-
-A faint visible test indicator may still represent a reactive-looking self-test result.
-
-Never describe this as "HIV positive".
-
-Use the term:
-
-"Reactive self-test"
-
-A reactive HIV self-test is a screening result and requires confirmatory testing by an appropriate healthcare professional or service.
-
-INVALID
-
-Use "invalid" when the actual device is clearly visible but the required control indicator is absent, or the visible device clearly displays an invalid result pattern.
-
-IMPORTANT:
-
-Do NOT classify a missing device, badly positioned photograph, blurry image, cropped result window or photograph of a person/room as "invalid".
-
-Those situations must be classified as "uncertain" and retake_photo must be true.
-
-UNCERTAIN
-
-Use "uncertain" whenever you cannot reliably determine the result.
-
-Examples:
-
-- test too far away
-- blurry image
-- poor lighting
-- glare
-- cropped test
-- result window not visible
-- ambiguous line
-- device cannot be identified
-- photograph does not contain an HIV self-test
-
------------------------------------
-CONFIDENCE
------------------------------------
-
-Use:
-
-"high"
-only when the device, result window, control indicator and test indicator area are clearly visible.
-
-"medium"
-when the device is interpretable but image quality is not ideal.
-
-"low"
-when there is significant uncertainty.
-
-If confidence is low, prefer:
-
-"result": "uncertain"
-
------------------------------------
-OUTPUT
------------------------------------
-
-Return ONLY valid JSON.
-
-Do not use markdown.
-
-Do not include text before or after the JSON.
-
-Required structure:
-
-{
-  "result": "non_reactive",
-  "confidence": "high",
-  "reason": "Brief description of the visible test appearance.",
-  "test_detected": true,
-  "retake_photo": false
-}
-`;
-
-    const userPrompt = `
-Examine this photograph of a claimed ${testTypeLabel} result.
-
-First confirm that the HIV self-test device and its result window are actually visible.
-
-Then visually classify the result.
-
-If the test or result window is not clearly visible, do not guess. Return uncertain and request another photograph.
-`;
-
-    /*
-    ----------------------------------------
-    7. CALL OPENAI
-    ----------------------------------------
-    */
-
-    const response =
-      await fetch(
-        "https://api.openai.com/v1/chat/completions",
+    try {
+      const response = await fetch(
+        "/api/interpret-test",
         {
           method: "POST",
 
           headers: {
             "Content-Type":
               "application/json",
-
-            Authorization:
-              `Bearer ${apiKey}`,
           },
 
           body: JSON.stringify({
-            model: "gpt-4o-mini",
-
-            messages: [
-              {
-                role: "system",
-                content: systemPrompt,
-              },
-
-              {
-                role: "user",
-
-                content: [
-                  {
-                    type: "text",
-                    text: userPrompt,
-                  },
-
-                  {
-                    type: "image_url",
-
-                    image_url: {
-                      url: image,
-                      detail: "high",
-                    },
-                  },
-                ],
-              },
-            ],
-
-            temperature: 0,
-
-            max_tokens: 500,
-
-            response_format: {
-              type: "json_object",
-            },
+            image: imageData,
+            selected_test: selectedTest,
           }),
         }
       );
 
-    /*
-    ----------------------------------------
-    8. HANDLE OPENAI ERROR
-    ----------------------------------------
-    */
+      let data: InterpretationResponse;
 
-    if (!response.ok) {
-      const errorText =
-        await response.text();
-
-      console.error(
-        "OpenAI interpretation error:",
-        response.status,
-        errorText
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            "The test image could not be interpreted. Please try again.",
-        },
-        {
-          status: 502,
-        }
-      );
-    }
-
-    /*
-    ----------------------------------------
-    9. READ RESPONSE
-    ----------------------------------------
-    */
-
-    const data =
-      await response.json();
-
-    const content =
-      data?.choices?.[0]
-        ?.message?.content;
-
-    if (!content) {
-      console.error(
-        "OpenAI returned no interpretation."
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            "No interpretation was returned. Please try again.",
-        },
-        {
-          status: 502,
-        }
-      );
-    }
-
-    /*
-    ----------------------------------------
-    10. PARSE JSON
-    ----------------------------------------
-    */
-
-    let interpretation: {
-      result?: unknown;
-      confidence?: unknown;
-      reason?: unknown;
-      test_detected?: unknown;
-      retake_photo?: unknown;
-    };
-
-    try {
-      interpretation =
-        JSON.parse(content);
-    } catch {
-      console.error(
-        "Could not parse interpretation:",
-        content
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            "The interpretation could not be processed. Please try again.",
-        },
-        {
-          status: 502,
-        }
-      );
-    }
-
-    /*
-    ----------------------------------------
-    11. VALIDATE MODEL RESULT
-    ----------------------------------------
-    */
-
-    if (
-      !isValidResult(
-        interpretation.result
-      ) ||
-      !isValidConfidence(
-        interpretation.confidence
-      ) ||
-      typeof interpretation.reason !==
-        "string"
-    ) {
-      console.error(
-        "Invalid interpretation:",
-        interpretation
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            "The interpretation returned an unexpected result.",
-        },
-        {
-          status: 502,
-        }
-      );
-    }
-
-    /*
-    ----------------------------------------
-    12. NORMALISE SAFETY RESULT
-    ----------------------------------------
-    */
-
-    let result =
-      interpretation.result;
-
-    let confidence =
-      interpretation.confidence;
-
-    let reason =
-      interpretation.reason.trim();
-
-    let testDetected =
-      interpretation.test_detected === true;
-
-    let retakePhoto =
-      interpretation.retake_photo === true;
-
-    /*
-     * Do not allow a low-confidence image
-     * to become a definitive visual result.
-     */
-
-    if (
-      confidence === "low" &&
-      result !== "uncertain"
-    ) {
-      result = "uncertain";
-      retakePhoto = true;
-
-      reason =
-        "The HIV self-test result is not clear enough to interpret reliably. Please retake the photo.";
-    }
-
-    /*
-     * If the model says there is no test,
-     * always force uncertain.
-     */
-
-    if (!testDetected) {
-      result = "uncertain";
-      confidence = "low";
-      retakePhoto = true;
-    }
-
-    /*
-     * An uncertain result should always
-     * request another image.
-     */
-
-    if (result === "uncertain") {
-      retakePhoto = true;
-    }
-
-    /*
-    ----------------------------------------
-    13. FINAL RESPONSE
-    ----------------------------------------
-    */
-
-    const finalResult: InterpretationResponse =
-      {
-        result,
-        confidence,
-        reason,
-        test_type:
-          testTypeLabel,
-        test_detected:
-          testDetected,
-        retake_photo:
-          retakePhoto,
-      };
-
-    console.log(
-      "HIV self-test interpreted:",
-      {
-        test_type:
-          testTypeLabel,
-
-        result:
-          finalResult.result,
-
-        confidence:
-          finalResult.confidence,
-
-        test_detected:
-          finalResult.test_detected,
-
-        retake_photo:
-          finalResult.retake_photo,
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(
+          "The interpretation service returned an invalid response."
+        );
       }
-    );
 
-    return NextResponse.json(
-      finalResult,
-      {
-        status: 200,
-      }
-    );
-  } catch (error) {
-    console.error(
-      "Interpret-test API error:",
-      error
-    );
+      if (!response.ok) {
+        console.error(
+          "Interpretation API error:",
+          response.status,
+          data
+        );
 
-    return NextResponse.json(
-      {
-        error:
-          "The test interpretation service encountered an error. Please try again.",
-      },
-      {
-        status: 500,
+        throw new Error(
+          data.error ||
+            "The test could not be interpreted."
+        );
       }
-    );
+
+      if (!data.result) {
+        throw new Error(
+          "No interpretation result was returned."
+        );
+      }
+
+      setResult(data);
+
+      // ---------------------------------------------------
+      // UNCERTAIN
+      // ---------------------------------------------------
+
+      if (
+        data.result === "uncertain" ||
+        data.retake_photo
+      ) {
+        setError(
+          data.reason ||
+            "The test is not clearly visible. Please take another photo."
+        );
+
+        return;
+      }
+
+      // ---------------------------------------------------
+      // SAVE RESULT
+      // ---------------------------------------------------
+
+      try {
+        sessionStorage.setItem(
+          "hivclintest_interpretation",
+          JSON.stringify({
+            ...data,
+            selected_test: selectedTest,
+            interpreted_at:
+              new Date().toISOString(),
+          })
+        );
+      } catch (storageError) {
+        console.warn(
+          "Could not save interpretation:",
+          storageError
+        );
+      }
+
+      // ---------------------------------------------------
+      // ROUTING
+      // ---------------------------------------------------
+
+      if (
+        data.result === "non_reactive"
+      ) {
+        router.push(
+          "/result/non-reactive"
+        );
+
+        return;
+      }
+
+      if (data.result === "reactive") {
+        router.push(
+          "/result/reactive"
+        );
+
+        return;
+      }
+
+      if (data.result === "invalid") {
+        router.push(
+          "/result/invalid"
+        );
+
+        return;
+      }
+
+      setError(
+        "The test could not be interpreted confidently. Please take another photo."
+      );
+    } catch (err) {
+      console.error(
+        "Interpret test error:",
+        err
+      );
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to interpret test. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
+
+  // -------------------------------------------------------
+  // PAGE
+  // -------------------------------------------------------
+
+  return (
+    <main
+      style={{
+        minHeight: "100vh",
+        background: "#f6faf7",
+        color: "#17352d",
+        fontFamily:
+          "Arial, Helvetica, sans-serif",
+        paddingBottom: "70px",
+      }}
+    >
+      {/* HEADER */}
+
+      <header
+        style={{
+          maxWidth: "760px",
+          margin: "0 auto",
+          padding: "24px 20px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent:
+            "space-between",
+        }}
+      >
+        <Link
+          href="/"
+          style={{
+            color: "#17352d",
+            textDecoration: "none",
+            fontWeight: 800,
+            fontSize: "21px",
+          }}
+        >
+          <span
+            style={{
+              color: "#39ff14",
+              marginRight: "7px",
+            }}
+          >
+            +
+          </span>
+
+          HIVClinTest
+        </Link>
+
+        <span
+          style={{
+            fontSize: "13px",
+            color: "#687a73",
+          }}
+        >
+          Private and confidential
+        </span>
+      </header>
+
+      <section
+        style={{
+          width: "calc(100% - 32px)",
+          maxWidth: "650px",
+          margin: "0 auto",
+        }}
+      >
+        {/* HEADING */}
+
+        <div
+          style={{
+            marginBottom: "30px",
+          }}
+        >
+          <p
+            style={{
+              textTransform:
+                "uppercase",
+              fontSize: "13px",
+              fontWeight: 800,
+              letterSpacing: "1px",
+              marginBottom: "8px",
+            }}
+          >
+            HIV self-test
+          </p>
+
+          <h1
+            style={{
+              fontSize:
+                "clamp(30px, 7vw, 44px)",
+              margin: "0 0 12px",
+            }}
+          >
+            Interpret your test
+          </h1>
+
+          <p
+            style={{
+              color: "#687a73",
+              lineHeight: 1.6,
+              fontSize: "17px",
+            }}
+          >
+            Take a clear photo of the
+            completed HIV self-test so the
+            result window can be visually
+            interpreted.
+          </p>
+        </div>
+
+        {/* TEST TYPE */}
+
+        <div
+          style={{
+            background: "#ffffff",
+            border:
+              "1px solid #d7e4dd",
+            borderRadius: "24px",
+            padding: "24px",
+            marginBottom: "22px",
+          }}
+        >
+          <label
+            style={{
+              display: "block",
+              fontWeight: 800,
+              marginBottom: "10px",
+            }}
+          >
+            Which HIV self-test are you
+            using?
+          </label>
+
+          <select
+            value={selectedTest}
+            onChange={(event) =>
+              setSelectedTest(
+                event.target.value as
+                  | "mylan_atomo"
+                  | "oraquick"
+              )
+            }
+            style={{
+              width: "100%",
+              padding: "16px",
+              borderRadius: "12px",
+              border:
+                "1px solid #b9ccc3",
+              fontSize: "16px",
+              background: "#ffffff",
+              color: "#17352d",
+            }}
+          >
+            <option value="mylan_atomo">
+              Mylan / Atomo HIV Self Test
+            </option>
+
+            <option value="oraquick">
+              OraQuick HIV Self Test
+            </option>
+          </select>
+        </div>
+
+        {/* PHOTO */}
+
+        <div
+          style={{
+            background: "#ffffff",
+            border:
+              "1px solid #d7e4dd",
+            borderRadius: "24px",
+            padding: "24px",
+            marginBottom: "22px",
+            textAlign: "center",
+          }}
+        >
+          {/* Hidden mobile camera input */}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={
+              handlePhotoChange
+            }
+            style={{
+              display: "none",
+            }}
+          />
+
+          {!imagePreview ? (
+            <>
+              <div
+                style={{
+                  fontSize: "52px",
+                  marginBottom: "14px",
+                }}
+              >
+                📷
+              </div>
+
+              <h2
+                style={{
+                  margin:
+                    "0 0 10px",
+                }}
+              >
+                Take a photo of your test
+              </h2>
+
+              <p
+                style={{
+                  color: "#687a73",
+                  lineHeight: 1.6,
+                }}
+              >
+                Make sure the entire result
+                window is clearly visible.
+              </p>
+
+              <button
+                type="button"
+                onClick={openCamera}
+                disabled={
+                  processingPhoto
+                }
+                style={{
+                  width: "100%",
+                  border: "none",
+                  borderRadius: "50px",
+                  padding: "18px",
+                  marginTop: "12px",
+                  background:
+                    "#0b654f",
+                  color: "#ffffff",
+                  fontWeight: 800,
+                  fontSize: "18px",
+                  cursor: "pointer",
+                }}
+              >
+                {processingPhoto
+                  ? "Processing photo..."
+                  : "Take or Choose Photo"}
+              </button>
+            </>
+          ) : (
+            <>
+              <img
+                src={imagePreview}
+                alt="Selected HIV self-test"
+                style={{
+                  display: "block",
+                  width: "100%",
+                  maxHeight: "520px",
+                  objectFit: "contain",
+                  borderRadius: "18px",
+                  background:
+                    "#f6faf7",
+                }}
+              />
+
+              <button
+                type="button"
+                onClick={
+                  chooseDifferentPhoto
+                }
+                disabled={
+                  processingPhoto ||
+                  loading
+                }
+                style={{
+                  marginTop: "22px",
+                  border:
+                    "1px solid #bfd2c9",
+                  borderRadius: "50px",
+                  background: "#ffffff",
+                  color: "#0b654f",
+                  padding:
+                    "15px 26px",
+                  fontWeight: 800,
+                  fontSize: "17px",
+                  cursor: "pointer",
+                }}
+              >
+                Choose Different Photo
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* PHOTO GUIDANCE */}
+
+        <div
+          style={{
+            background: "#ffffff",
+            border:
+              "1px solid #d7e4dd",
+            borderRadius: "24px",
+            padding: "26px",
+            marginBottom: "22px",
+          }}
+        >
+          <h2
+            style={{
+              marginTop: 0,
+              fontSize: "22px",
+            }}
+          >
+            For the best result:
+          </h2>
+
+          <ul
+            style={{
+              color: "#687a73",
+              lineHeight: 1.7,
+              fontSize: "17px",
+              paddingLeft: "24px",
+            }}
+          >
+            <li>
+              Place the test on a flat
+              surface
+            </li>
+
+            <li>Use good lighting</li>
+
+            <li>
+              Make sure the entire result
+              window is visible
+            </li>
+
+            <li>
+              Avoid glare and shadows
+            </li>
+
+            <li>
+              Make sure the test was read
+              within the manufacturer's
+              specified interpretation time
+            </li>
+          </ul>
+        </div>
+
+        {/* ERROR / RETAKE MESSAGE */}
+
+        {error && (
+          <div
+            role="alert"
+            style={{
+              background: "#fff0f0",
+              border:
+                "1px solid #f1cccc",
+              color: "#923636",
+              padding: "18px",
+              borderRadius: "16px",
+              marginBottom: "20px",
+              lineHeight: 1.5,
+            }}
+          >
+            <strong>
+              We couldn't interpret this
+              photo
+            </strong>
+
+            <div
+              style={{
+                marginTop: "6px",
+              }}
+            >
+              {error}
+            </div>
+
+            {imagePreview && (
+              <button
+                type="button"
+                onClick={
+                  chooseDifferentPhoto
+                }
+                style={{
+                  marginTop: "14px",
+                  border:
+                    "1px solid #923636",
+                  background:
+                    "#ffffff",
+                  color: "#923636",
+                  padding:
+                    "11px 18px",
+                  borderRadius: "30px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Retake Photo
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* INTERPRET BUTTON */}
+
+        <button
+          type="button"
+          onClick={interpretTest}
+          disabled={
+            !imageData ||
+            loading ||
+            processingPhoto
+          }
+          style={{
+            width: "100%",
+            border: "none",
+            borderRadius: "50px",
+            padding: "20px",
+            background:
+              !imageData ||
+              loading ||
+              processingPhoto
+                ? "#a7bcb4"
+                : "#0b654f",
+            color: "#ffffff",
+            fontSize: "20px",
+            fontWeight: 800,
+            cursor:
+              !imageData ||
+              loading ||
+              processingPhoto
+                ? "not-allowed"
+                : "pointer",
+          }}
+        >
+          {loading
+            ? "Interpreting Test..."
+            : processingPhoto
+              ? "Processing Photo..."
+              : "Interpret My Test"}
+        </button>
+
+        {loading && (
+          <p
+            style={{
+              textAlign: "center",
+              color: "#687a73",
+              marginTop: "14px",
+            }}
+          >
+            Analysing the test image. Please
+            don't close this page.
+          </p>
+        )}
+
+        {/* DISCLAIMER */}
+
+        <p
+          style={{
+            marginTop: "30px",
+            color: "#687a73",
+            lineHeight: 1.7,
+            fontSize: "15px",
+          }}
+        >
+          This is a screening support
+          service. A reactive self-test
+          result is not a confirmed HIV
+          diagnosis and will require
+          confirmatory testing.
+        </p>
+      </section>
+    </main>
+  );
 }
