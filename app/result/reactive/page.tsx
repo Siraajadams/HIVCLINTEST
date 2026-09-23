@@ -31,23 +31,112 @@ export default function ReactivePage() {
         </div>
 
         <p className="flow-subtitle">
-          You need confirmatory HIV testing by a healthcare
-          professional.
+          Your result needs to be confirmed with further HIV
+          testing by a healthcare professional.
         </p>
 
+        {/* Clinical next-step information */}
+        <div
+          style={{
+            marginTop: "28px",
+            padding: "26px",
+            border: "1px solid #cbded7",
+            borderRadius: "24px",
+            background: "#f7fbf9",
+          }}
+        >
+          <p
+            className="eyebrow"
+            style={{ marginTop: 0 }}
+          >
+            What happens next?
+          </p>
+
+          <h2
+            style={{
+              marginTop: "8px",
+              marginBottom: "14px",
+            }}
+          >
+            Speak to a healthcare professional
+          </h2>
+
+          <p
+            style={{
+              margin: 0,
+              lineHeight: 1.6,
+            }}
+          >
+            A doctor or appropriately authorised prescribing
+            pharmacist should review your result, arrange or
+            advise on confirmatory HIV testing, and assess your
+            recent HIV exposure history.
+          </p>
+        </div>
+
+        {/* Important medication routing */}
+        <div
+          style={{
+            marginTop: "20px",
+            padding: "24px",
+            borderRadius: "24px",
+            background: "#fff7f3",
+            border: "1px solid #e6c5ba",
+          }}
+        >
+          <strong>
+            Do not start the automated PrEP or PEP pathway from
+            this result.
+          </strong>
+
+          <p
+            style={{
+              marginBottom: 0,
+              lineHeight: 1.6,
+            }}
+          >
+            Your healthcare professional will first review your
+            reactive self-test and determine the appropriate
+            testing, treatment or prevention pathway.
+          </p>
+        </div>
+
+        {/* Primary clinical referral */}
         <Link
-          href="/assessment?confirmatory=yes"
+          href="/assessment/clinical-review?result=reactive"
           className="start-button"
           style={{
-            display: "inline-block",
+            display: "block",
+            marginTop: "28px",
             textDecoration: "none",
             textAlign: "center",
           }}
         >
-          Get Confirmatory Testing
+          Speak to a Healthcare Professional
         </Link>
 
-        <p className="screening-note">
+        {/* In-person option */}
+        <Link
+          href="/assessment/pharmacy?result=reactive&purpose=confirmatory"
+          style={{
+            display: "block",
+            marginTop: "14px",
+            padding: "18px 24px",
+            border: "1px solid #16765f",
+            borderRadius: "999px",
+            color: "#16765f",
+            fontWeight: 700,
+            textDecoration: "none",
+            textAlign: "center",
+          }}
+        >
+          Find Confirmatory Testing Near Me
+        </Link>
+
+        <p
+          className="screening-note"
+          style={{ marginTop: "28px" }}
+        >
           Do not consider yourself HIV positive based on this
           screening result alone.
         </p>
