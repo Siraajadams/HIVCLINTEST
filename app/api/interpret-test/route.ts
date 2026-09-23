@@ -4,19 +4,25 @@ import Link from "next/link";
 import { ChangeEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+type TestType = "mylan_atomo" | "oraquick";
+
 type InterpretationResult =
   | "non_reactive"
   | "reactive"
   | "invalid"
   | "uncertain";
 
-type Confidence = "high" | "medium" | "low";
+type Confidence =
+  | "high"
+  | "medium"
+  | "low";
 
 type InterpretationResponse = {
-  result: InterpretationResult;
-  confidence: Confidence;
-  reason: string;
+  result?: InterpretationResult;
+  confidence?: Confidence;
+  reason?: string;
   test_type?: string;
+  test_detected?: boolean;
   retake_photo?: boolean;
   error?: string;
 };
@@ -24,68 +30,123 @@ type InterpretationResponse = {
 export default function TestPhotoPage() {
   const router = useRouter();
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
 
-  const [selectedTest, setSelectedTest] = useState<
-    "mylan_atomo" | "oraquick"
-  >("mylan_atomo");
+  const [selectedTest, setSelectedTest] =
+    useState<TestType>("mylan_atomo");
 
-  const [imagePreview, setImagePreview] = useState("");
-  const [imageData, setImageData] = useState("");
+  const [imagePreview, setImagePreview] =
+    useState("");
 
-  const [loading, setLoading] = useState(false);
-  const [processingPhoto, setProcessingPhoto] = useState(false);
+  const [imageData, setImageData] =
+    useState("");
 
-  const [error, setError] = useState("");
-  const [result, setResult] =
-    useState<InterpretationResponse | null>(null);
+  const [loading, setLoading] =
+    useState(false);
 
-  // -------------------------------------------------------
-  // OPEN CAMERA / PHOTO PICKER
-  // -------------------------------------------------------
+  const [
+    processingPhoto,
+    setProcessingPhoto,
+  ] = useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const [
+    result,
+    setResult,
+  ] =
+    useState<InterpretationResponse | null>(
+      null
+    );
+
+  // =====================================================
+  // OPEN CAMERA / PHOTO LIBRARY
+  // =====================================================
 
   function openCamera() {
+    if (
+      loading ||
+      processingPhoto
+    ) {
+      return;
+    }
+
     setError("");
     setResult(null);
 
-    if (!fileInputRef.current) return;
+    const input =
+      fileInputRef.current;
 
-    // Important on mobile:
-    // clear the previous file so selecting / taking the
-    // same image again still triggers onChange.
-    fileInputRef.current.value = "";
+    if (!input) {
+      setError(
+        "The camera could not be opened. Please try again."
+      );
+      return;
+    }
 
-    fileInputRef.current.click();
+    /*
+     * Important for iPhone + Android:
+     *
+     * Reset the value so choosing the same
+     * photo twice still triggers onChange.
+     */
+    input.value = "";
+
+    input.click();
   }
 
-  // -------------------------------------------------------
-  // CHOOSE DIFFERENT PHOTO
-  // -------------------------------------------------------
+  // =====================================================
+  // RETAKE / CHOOSE DIFFERENT PHOTO
+  // =====================================================
 
   function chooseDifferentPhoto() {
+    if (
+      loading ||
+      processingPhoto
+    ) {
+      return;
+    }
+
     setError("");
     setResult(null);
+
     setImagePreview("");
     setImageData("");
 
-    if (!fileInputRef.current) return;
+    const input =
+      fileInputRef.current;
 
-    fileInputRef.current.value = "";
+    if (!input) {
+      return;
+    }
 
-    // Small delay improves reliability on some mobile browsers.
-    setTimeout(() => {
+    /*
+     * Reset the native file input.
+     */
+    input.value = "";
+
+    /*
+     * Give mobile Safari / Chrome a moment
+     * after resetting the input.
+     */
+    window.setTimeout(() => {
       fileInputRef.current?.click();
-    }, 100);
+    }, 50);
   }
 
-  // -------------------------------------------------------
-  // FILE SELECTED
-  // -------------------------------------------------------
+  // =====================================================
+  // PHOTO SELECTED
+  // =====================================================
 
   async function handlePhotoChange(
     event: ChangeEvent<HTMLInputElement>
   ) {
-    const file = event.target.files?.[0];
+    const file =
+      event.target.files?.[0];
 
     if (!file) {
       return;
@@ -96,98 +157,111 @@ export default function TestPhotoPage() {
     setProcessingPhoto(true);
 
     try {
-      if (!file.type.startsWith("image/")) {
+      if (
+        !file.type ||
+        !file.type.startsWith("image/")
+      ) {
         throw new Error(
-          "Please select or take a photo."
+          "Please select an image or take a photo."
         );
       }
 
       /*
-       * Mobile camera images can easily be 5–15 MB.
+       * Mobile camera photos can be large.
        *
-       * We resize/compress before sending the image
-       * to the API.
+       * Compress them before sending them
+       * to our API.
        */
-
       const compressedImage =
-        await compressImage(file);
+        await prepareImage(file);
 
-      setImageData(compressedImage);
-      setImagePreview(compressedImage);
+      setImagePreview(
+        compressedImage
+      );
+
+      setImageData(
+        compressedImage
+      );
     } catch (err) {
       console.error(
         "Photo processing error:",
         err
       );
 
-      setImageData("");
       setImagePreview("");
+      setImageData("");
 
       setError(
         err instanceof Error
           ? err.message
-          : "We could not process this photo. Please take another photo."
+          : "We could not process this photo. Please try again."
       );
     } finally {
       setProcessingPhoto(false);
     }
   }
 
-  // -------------------------------------------------------
-  // COMPRESS MOBILE IMAGE
-  // -------------------------------------------------------
+  // =====================================================
+  // PREPARE / COMPRESS IMAGE
+  // =====================================================
 
-  async function compressImage(
+  async function prepareImage(
     file: File
   ): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
+    const originalDataUrl =
+      await readFileAsDataURL(file);
 
-      reader.onerror = () => {
-        reject(
-          new Error(
-            "Unable to read the photo. Please try again."
-          )
-        );
-      };
+    /*
+     * Try browser-native image decoding first.
+     *
+     * createImageBitmap works well on modern
+     * Android and newer iPhones.
+     */
+    if (
+      typeof createImageBitmap ===
+      "function"
+    ) {
+      try {
+        const bitmap =
+          await createImageBitmap(file);
 
-      reader.onload = () => {
-        if (
-          !reader.result ||
-          typeof reader.result !== "string"
-        ) {
-          reject(
-            new Error(
-              "Unable to read the photo."
-            )
+        try {
+          return resizeToJpeg(
+            bitmap,
+            bitmap.width,
+            bitmap.height
           );
-          return;
+        } finally {
+          bitmap.close();
         }
+      } catch (bitmapError) {
+        console.warn(
+          "createImageBitmap unavailable for this image. Falling back to Image.",
+          bitmapError
+        );
+      }
+    }
 
-        const img = new Image();
+    /*
+     * Safari-compatible fallback.
+     */
+    return new Promise(
+      (resolve, reject) => {
+        const image =
+          new Image();
 
-        img.onerror = () => {
-          reject(
-            new Error(
-              "Unable to process this image. Please take another photo."
-            )
-          );
-        };
-
-        img.onload = () => {
+        image.onload = () => {
           try {
-            /*
-             * 1600px is more than enough for the
-             * HIV test result window while keeping
-             * mobile uploads manageable.
-             */
+            const width =
+              image.naturalWidth;
 
-            const MAX_SIZE = 1600;
+            const height =
+              image.naturalHeight;
 
-            let width = img.naturalWidth;
-            let height = img.naturalHeight;
-
-            if (!width || !height) {
+            if (
+              !width ||
+              !height
+            ) {
               reject(
                 new Error(
                   "The selected photo could not be read."
@@ -196,93 +270,197 @@ export default function TestPhotoPage() {
               return;
             }
 
-            if (
-              width > MAX_SIZE ||
-              height > MAX_SIZE
-            ) {
-              const scale = Math.min(
-                MAX_SIZE / width,
-                MAX_SIZE / height
-              );
-
-              width = Math.round(
-                width * scale
-              );
-
-              height = Math.round(
-                height * scale
-              );
-            }
-
-            const canvas =
-              document.createElement("canvas");
-
-            canvas.width = width;
-            canvas.height = height;
-
-            const ctx =
-              canvas.getContext("2d");
-
-            if (!ctx) {
-              reject(
-                new Error(
-                  "Your browser could not process the photo."
-                )
-              );
-              return;
-            }
-
-            // White background prevents transparent
-            // areas becoming black.
-            ctx.fillStyle = "#ffffff";
-            ctx.fillRect(
-              0,
-              0,
-              width,
-              height
-            );
-
-            ctx.drawImage(
-              img,
-              0,
-              0,
-              width,
-              height
-            );
-
-            /*
-             * JPEG substantially reduces mobile
-             * camera upload size.
-             */
-
             const compressed =
-              canvas.toDataURL(
-                "image/jpeg",
-                0.82
+              resizeToJpeg(
+                image,
+                width,
+                height
               );
 
-            resolve(compressed);
+            resolve(
+              compressed
+            );
           } catch (err) {
             reject(err);
           }
         };
 
-        img.src = reader.result;
-      };
+        image.onerror = () => {
+          reject(
+            new Error(
+              "This photo could not be processed. Please take another photo."
+            )
+          );
+        };
 
-      reader.readAsDataURL(file);
-    });
+        image.src =
+          originalDataUrl;
+      }
+    );
   }
 
-  // -------------------------------------------------------
+  // =====================================================
+  // READ FILE
+  // =====================================================
+
+  function readFileAsDataURL(
+    file: File
+  ): Promise<string> {
+    return new Promise(
+      (resolve, reject) => {
+        const reader =
+          new FileReader();
+
+        reader.onload = () => {
+          if (
+            typeof reader.result ===
+            "string"
+          ) {
+            resolve(
+              reader.result
+            );
+          } else {
+            reject(
+              new Error(
+                "The photo could not be read."
+              )
+            );
+          }
+        };
+
+        reader.onerror = () => {
+          reject(
+            new Error(
+              "The photo could not be read."
+            )
+          );
+        };
+
+        reader.readAsDataURL(
+          file
+        );
+      }
+    );
+  }
+
+  // =====================================================
+  // RESIZE TO JPEG
+  // =====================================================
+
+  function resizeToJpeg(
+    source:
+      | HTMLImageElement
+      | ImageBitmap,
+    sourceWidth: number,
+    sourceHeight: number
+  ): string {
+    /*
+     * 1600px provides enough resolution
+     * for the test window while keeping
+     * uploads manageable on mobile data.
+     */
+    const MAX_DIMENSION =
+      1600;
+
+    let width =
+      sourceWidth;
+
+    let height =
+      sourceHeight;
+
+    if (
+      width >
+        MAX_DIMENSION ||
+      height >
+        MAX_DIMENSION
+    ) {
+      const scale =
+        Math.min(
+          MAX_DIMENSION /
+            width,
+          MAX_DIMENSION /
+            height
+        );
+
+      width =
+        Math.round(
+          width * scale
+        );
+
+      height =
+        Math.round(
+          height * scale
+        );
+    }
+
+    const canvas =
+      document.createElement(
+        "canvas"
+      );
+
+    canvas.width =
+      width;
+
+    canvas.height =
+      height;
+
+    const context =
+      canvas.getContext(
+        "2d"
+      );
+
+    if (!context) {
+      throw new Error(
+        "Your browser could not prepare this photo."
+      );
+    }
+
+    /*
+     * White background prevents
+     * transparent images becoming black.
+     */
+    context.fillStyle =
+      "#ffffff";
+
+    context.fillRect(
+      0,
+      0,
+      width,
+      height
+    );
+
+    context.drawImage(
+      source,
+      0,
+      0,
+      width,
+      height
+    );
+
+    /*
+     * JPEG keeps mobile payloads
+     * substantially smaller.
+     */
+    return canvas.toDataURL(
+      "image/jpeg",
+      0.82
+    );
+  }
+
+  // =====================================================
   // INTERPRET TEST
-  // -------------------------------------------------------
+  // =====================================================
 
   async function interpretTest() {
     if (!imageData) {
       setError(
-        "Please take or select a photo of your HIV self-test first."
+        "Please take or choose a photo of your HIV self-test first."
       );
+
+      return;
+    }
+
+    if (loading) {
       return;
     }
 
@@ -291,30 +469,58 @@ export default function TestPhotoPage() {
     setResult(null);
 
     try {
-      const response = await fetch(
-        "/api/interpret-test",
-        {
-          method: "POST",
+      const response =
+        await fetch(
+          "/api/interpret-test",
+          {
+            method: "POST",
 
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
 
-          body: JSON.stringify({
-            image: imageData,
-            selected_test: selectedTest,
-          }),
-        }
-      );
+            body:
+              JSON.stringify({
+                image:
+                  imageData,
 
-      let data: InterpretationResponse;
+                selected_test:
+                  selectedTest,
+              }),
+          }
+        );
+
+      /*
+       * Read as text first.
+       *
+       * This gives us a better error
+       * if Vercel returns HTML rather
+       * than JSON.
+       */
+      const responseText =
+        await response.text();
+
+      let data:
+        InterpretationResponse;
 
       try {
-        data = await response.json();
+        data =
+          JSON.parse(
+            responseText
+          );
       } catch {
+        console.error(
+          "Non-JSON API response:",
+          response.status,
+          responseText.slice(
+            0,
+            500
+          )
+        );
+
         throw new Error(
-          "The interpretation service returned an invalid response."
+          "The interpretation service returned an unexpected response. Please try again."
         );
       }
 
@@ -339,76 +545,82 @@ export default function TestPhotoPage() {
 
       setResult(data);
 
-      // ---------------------------------------------------
-      // UNCERTAIN
-      // ---------------------------------------------------
+      // =================================================
+      // UNCERTAIN / RETAKE
+      // =================================================
 
       if (
-        data.result === "uncertain" ||
-        data.retake_photo
+        data.result ===
+          "uncertain" ||
+        data.retake_photo ===
+          true
       ) {
         setError(
           data.reason ||
-            "The test is not clearly visible. Please take another photo."
+            "The HIV self-test result is not clearly visible. Please retake the photo."
         );
 
         return;
       }
 
-      // ---------------------------------------------------
-      // SAVE RESULT
-      // ---------------------------------------------------
+      // =================================================
+      // SAVE INTERPRETATION
+      // =================================================
 
       try {
-        sessionStorage.setItem(
+        window.sessionStorage.setItem(
           "hivclintest_interpretation",
+
           JSON.stringify({
             ...data,
-            selected_test: selectedTest,
+
+            selected_test:
+              selectedTest,
+
             interpreted_at:
               new Date().toISOString(),
           })
         );
-      } catch (storageError) {
+      } catch (
+        storageError
+      ) {
         console.warn(
-          "Could not save interpretation:",
+          "Unable to save interpretation:",
           storageError
         );
       }
 
-      // ---------------------------------------------------
-      // ROUTING
-      // ---------------------------------------------------
+      // =================================================
+      // ROUTE RESULT
+      // =================================================
 
-      if (
-        data.result === "non_reactive"
+      switch (
+        data.result
       ) {
-        router.push(
-          "/result/non-reactive"
-        );
+        case "non_reactive":
+          router.push(
+            "/result/non-reactive"
+          );
+          return;
 
-        return;
+        case "reactive":
+          router.push(
+            "/result/reactive"
+          );
+          return;
+
+        case "invalid":
+          router.push(
+            "/result/invalid"
+          );
+          return;
+
+        default:
+          setError(
+            "The HIV self-test could not be interpreted confidently. Please take another photo."
+          );
+          return;
       }
-
-      if (data.result === "reactive") {
-        router.push(
-          "/result/reactive"
-        );
-
-        return;
-      }
-
-      if (data.result === "invalid") {
-        router.push(
-          "/result/invalid"
-        );
-
-        return;
-      }
-
-      setError(
-        "The test could not be interpreted confidently. Please take another photo."
-      );
     } catch (err) {
       console.error(
         "Interpret test error:",
@@ -418,54 +630,68 @@ export default function TestPhotoPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "Failed to interpret test. Please try again."
+          : "Failed to interpret the test. Please try again."
       );
     } finally {
       setLoading(false);
     }
   }
 
-  // -------------------------------------------------------
+  // =====================================================
   // PAGE
-  // -------------------------------------------------------
+  // =====================================================
 
   return (
     <main
       style={{
-        minHeight: "100vh",
-        background: "#f6faf7",
-        color: "#17352d",
+        minHeight:
+          "100vh",
+        background:
+          "#f6faf7",
+        color:
+          "#17352d",
         fontFamily:
           "Arial, Helvetica, sans-serif",
-        paddingBottom: "70px",
+        paddingBottom:
+          "70px",
       }}
     >
-      {/* HEADER */}
-
       <header
         style={{
-          maxWidth: "760px",
-          margin: "0 auto",
-          padding: "24px 20px",
-          display: "flex",
-          alignItems: "center",
+          maxWidth:
+            "760px",
+          margin:
+            "0 auto",
+          padding:
+            "24px 20px",
+          display:
+            "flex",
+          alignItems:
+            "center",
           justifyContent:
             "space-between",
+          gap: "15px",
         }}
       >
         <Link
           href="/"
           style={{
-            color: "#17352d",
-            textDecoration: "none",
-            fontWeight: 800,
-            fontSize: "21px",
+            color:
+              "#17352d",
+            textDecoration:
+              "none",
+            fontWeight:
+              800,
+            fontSize:
+              "21px",
           }}
         >
           <span
             style={{
-              color: "#39ff14",
-              marginRight: "7px",
+              color:
+                "#39ff14",
+              marginRight:
+                "7px",
             }}
           >
             +
@@ -476,8 +702,12 @@ export default function TestPhotoPage() {
 
         <span
           style={{
-            fontSize: "13px",
-            color: "#687a73",
+            fontSize:
+              "12px",
+            color:
+              "#687a73",
+            textAlign:
+              "right",
           }}
         >
           Private and confidential
@@ -486,26 +716,32 @@ export default function TestPhotoPage() {
 
       <section
         style={{
-          width: "calc(100% - 32px)",
-          maxWidth: "650px",
-          margin: "0 auto",
+          width:
+            "calc(100% - 32px)",
+          maxWidth:
+            "650px",
+          margin:
+            "0 auto",
         }}
       >
-        {/* HEADING */}
-
         <div
           style={{
-            marginBottom: "30px",
+            marginBottom:
+              "28px",
           }}
         >
           <p
             style={{
               textTransform:
                 "uppercase",
-              fontSize: "13px",
-              fontWeight: 800,
-              letterSpacing: "1px",
-              marginBottom: "8px",
+              fontSize:
+                "13px",
+              fontWeight:
+                800,
+              letterSpacing:
+                "1px",
+              marginBottom:
+                "8px",
             }}
           >
             HIV self-test
@@ -515,7 +751,8 @@ export default function TestPhotoPage() {
             style={{
               fontSize:
                 "clamp(30px, 7vw, 44px)",
-              margin: "0 0 12px",
+              margin:
+                "0 0 12px",
             }}
           >
             Interpret your test
@@ -523,15 +760,20 @@ export default function TestPhotoPage() {
 
           <p
             style={{
-              color: "#687a73",
-              lineHeight: 1.6,
-              fontSize: "17px",
+              color:
+                "#687a73",
+              lineHeight:
+                1.6,
+              fontSize:
+                "17px",
+              margin:
+                0,
             }}
           >
             Take a clear photo of the
-            completed HIV self-test so the
-            result window can be visually
-            interpreted.
+            completed HIV self-test. Make
+            sure the test device and entire
+            result window are visible.
           </p>
         </div>
 
@@ -539,19 +781,29 @@ export default function TestPhotoPage() {
 
         <div
           style={{
-            background: "#ffffff",
+            background:
+              "#ffffff",
             border:
               "1px solid #d7e4dd",
-            borderRadius: "24px",
-            padding: "24px",
-            marginBottom: "22px",
+            borderRadius:
+              "24px",
+            padding:
+              "24px",
+            marginBottom:
+              "22px",
           }}
         >
           <label
+            htmlFor="test-type"
             style={{
-              display: "block",
-              fontWeight: 800,
-              marginBottom: "10px",
+              display:
+                "block",
+              fontWeight:
+                800,
+              marginBottom:
+                "10px",
+              fontSize:
+                "17px",
             }}
           >
             Which HIV self-test are you
@@ -559,23 +811,42 @@ export default function TestPhotoPage() {
           </label>
 
           <select
-            value={selectedTest}
-            onChange={(event) =>
+            id="test-type"
+            value={
+              selectedTest
+            }
+            onChange={(
+              event
+            ) => {
               setSelectedTest(
-                event.target.value as
-                  | "mylan_atomo"
-                  | "oraquick"
-              )
+                event.target
+                  .value as TestType
+              );
+
+              setError("");
+              setResult(null);
+            }}
+            disabled={
+              loading ||
+              processingPhoto
             }
             style={{
-              width: "100%",
-              padding: "16px",
-              borderRadius: "12px",
+              width:
+                "100%",
+              boxSizing:
+                "border-box",
+              padding:
+                "16px",
+              borderRadius:
+                "12px",
               border:
                 "1px solid #b9ccc3",
-              fontSize: "16px",
-              background: "#ffffff",
-              color: "#17352d",
+              fontSize:
+                "16px",
+              background:
+                "#ffffff",
+              color:
+                "#17352d",
             }}
           >
             <option value="mylan_atomo">
@@ -588,23 +859,42 @@ export default function TestPhotoPage() {
           </select>
         </div>
 
-        {/* PHOTO */}
+        {/* PHOTO AREA */}
 
         <div
           style={{
-            background: "#ffffff",
+            background:
+              "#ffffff",
             border:
               "1px solid #d7e4dd",
-            borderRadius: "24px",
-            padding: "24px",
-            marginBottom: "22px",
-            textAlign: "center",
+            borderRadius:
+              "24px",
+            padding:
+              "24px",
+            marginBottom:
+              "22px",
+            textAlign:
+              "center",
           }}
         >
-          {/* Hidden mobile camera input */}
+          {/*
+           * Using accept=image/* gives:
+           *
+           * Android:
+           * camera / gallery options
+           *
+           * iPhone:
+           * Take Photo or Video /
+           * Photo Library / Choose File
+           *
+           * capture=environment asks mobile
+           * browsers to prefer the rear camera.
+           */}
 
           <input
-            ref={fileInputRef}
+            ref={
+              fileInputRef
+            }
             type="file"
             accept="image/*"
             capture="environment"
@@ -612,7 +902,18 @@ export default function TestPhotoPage() {
               handlePhotoChange
             }
             style={{
-              display: "none",
+              position:
+                "absolute",
+              width:
+                "1px",
+              height:
+                "1px",
+              opacity:
+                0,
+              overflow:
+                "hidden",
+              pointerEvents:
+                "none",
             }}
           />
 
@@ -620,8 +921,10 @@ export default function TestPhotoPage() {
             <>
               <div
                 style={{
-                  fontSize: "52px",
-                  marginBottom: "14px",
+                  fontSize:
+                    "50px",
+                  marginBottom:
+                    "12px",
                 }}
               >
                 📷
@@ -638,50 +941,71 @@ export default function TestPhotoPage() {
 
               <p
                 style={{
-                  color: "#687a73",
-                  lineHeight: 1.6,
+                  color:
+                    "#687a73",
+                  lineHeight:
+                    1.6,
+                  marginBottom:
+                    "20px",
                 }}
               >
-                Make sure the entire result
-                window is clearly visible.
+                Use your phone camera or
+                choose an existing photo.
               </p>
 
               <button
                 type="button"
-                onClick={openCamera}
+                onClick={
+                  openCamera
+                }
                 disabled={
-                  processingPhoto
+                  processingPhoto ||
+                  loading
                 }
                 style={{
-                  width: "100%",
-                  border: "none",
-                  borderRadius: "50px",
-                  padding: "18px",
-                  marginTop: "12px",
+                  width:
+                    "100%",
+                  border:
+                    "none",
+                  borderRadius:
+                    "50px",
+                  padding:
+                    "18px",
                   background:
                     "#0b654f",
-                  color: "#ffffff",
-                  fontWeight: 800,
-                  fontSize: "18px",
-                  cursor: "pointer",
+                  color:
+                    "#ffffff",
+                  fontWeight:
+                    800,
+                  fontSize:
+                    "18px",
+                  cursor:
+                    "pointer",
                 }}
               >
                 {processingPhoto
-                  ? "Processing photo..."
+                  ? "Processing Photo..."
                   : "Take or Choose Photo"}
               </button>
             </>
           ) : (
             <>
               <img
-                src={imagePreview}
+                src={
+                  imagePreview
+                }
                 alt="Selected HIV self-test"
                 style={{
-                  display: "block",
-                  width: "100%",
-                  maxHeight: "520px",
-                  objectFit: "contain",
-                  borderRadius: "18px",
+                  display:
+                    "block",
+                  width:
+                    "100%",
+                  maxHeight:
+                    "520px",
+                  objectFit:
+                    "contain",
+                  borderRadius:
+                    "18px",
                   background:
                     "#f6faf7",
                 }}
@@ -697,17 +1021,24 @@ export default function TestPhotoPage() {
                   loading
                 }
                 style={{
-                  marginTop: "22px",
+                  marginTop:
+                    "22px",
                   border:
                     "1px solid #bfd2c9",
-                  borderRadius: "50px",
-                  background: "#ffffff",
-                  color: "#0b654f",
+                  borderRadius:
+                    "50px",
+                  background:
+                    "#ffffff",
+                  color:
+                    "#0b654f",
                   padding:
                     "15px 26px",
-                  fontWeight: 800,
-                  fontSize: "17px",
-                  cursor: "pointer",
+                  fontWeight:
+                    800,
+                  fontSize:
+                    "17px",
+                  cursor:
+                    "pointer",
                 }}
               >
                 Choose Different Photo
@@ -716,22 +1047,28 @@ export default function TestPhotoPage() {
           )}
         </div>
 
-        {/* PHOTO GUIDANCE */}
+        {/* GUIDANCE */}
 
         <div
           style={{
-            background: "#ffffff",
+            background:
+              "#ffffff",
             border:
               "1px solid #d7e4dd",
-            borderRadius: "24px",
-            padding: "26px",
-            marginBottom: "22px",
+            borderRadius:
+              "24px",
+            padding:
+              "26px",
+            marginBottom:
+              "22px",
           }}
         >
           <h2
             style={{
-              marginTop: 0,
-              fontSize: "22px",
+              marginTop:
+                0,
+              fontSize:
+                "22px",
             }}
           >
             For the best result:
@@ -739,10 +1076,16 @@ export default function TestPhotoPage() {
 
           <ul
             style={{
-              color: "#687a73",
-              lineHeight: 1.7,
-              fontSize: "17px",
-              paddingLeft: "24px",
+              color:
+                "#687a73",
+              lineHeight:
+                1.7,
+              fontSize:
+                "17px",
+              paddingLeft:
+                "24px",
+              marginBottom:
+                0,
             }}
           >
             <li>
@@ -750,11 +1093,18 @@ export default function TestPhotoPage() {
               surface
             </li>
 
-            <li>Use good lighting</li>
+            <li>
+              Use good lighting
+            </li>
 
             <li>
               Make sure the entire result
               window is visible
+            </li>
+
+            <li>
+              Hold the camera directly
+              above the test
             </li>
 
             <li>
@@ -769,20 +1119,26 @@ export default function TestPhotoPage() {
           </ul>
         </div>
 
-        {/* ERROR / RETAKE MESSAGE */}
+        {/* ERROR / RETAKE */}
 
         {error && (
           <div
             role="alert"
             style={{
-              background: "#fff0f0",
+              background:
+                "#fff0f0",
               border:
                 "1px solid #f1cccc",
-              color: "#923636",
-              padding: "18px",
-              borderRadius: "16px",
-              marginBottom: "20px",
-              lineHeight: 1.5,
+              color:
+                "#923636",
+              padding:
+                "18px",
+              borderRadius:
+                "16px",
+              marginBottom:
+                "20px",
+              lineHeight:
+                1.5,
             }}
           >
             <strong>
@@ -792,7 +1148,8 @@ export default function TestPhotoPage() {
 
             <div
               style={{
-                marginTop: "6px",
+                marginTop:
+                  "7px",
               }}
             >
               {error}
@@ -804,18 +1161,29 @@ export default function TestPhotoPage() {
                 onClick={
                   chooseDifferentPhoto
                 }
+                disabled={
+                  loading ||
+                  processingPhoto
+                }
                 style={{
-                  marginTop: "14px",
+                  marginTop:
+                    "15px",
                   border:
                     "1px solid #923636",
                   background:
                     "#ffffff",
-                  color: "#923636",
+                  color:
+                    "#923636",
                   padding:
-                    "11px 18px",
-                  borderRadius: "30px",
-                  fontWeight: 700,
-                  cursor: "pointer",
+                    "12px 18px",
+                  borderRadius:
+                    "30px",
+                  fontWeight:
+                    800,
+                  fontSize:
+                    "15px",
+                  cursor:
+                    "pointer",
                 }}
               >
                 Retake Photo
@@ -824,30 +1192,39 @@ export default function TestPhotoPage() {
           </div>
         )}
 
-        {/* INTERPRET BUTTON */}
+        {/* INTERPRET */}
 
         <button
           type="button"
-          onClick={interpretTest}
+          onClick={
+            interpretTest
+          }
           disabled={
             !imageData ||
             loading ||
             processingPhoto
           }
           style={{
-            width: "100%",
-            border: "none",
-            borderRadius: "50px",
-            padding: "20px",
+            width:
+              "100%",
+            border:
+              "none",
+            borderRadius:
+              "50px",
+            padding:
+              "20px",
             background:
               !imageData ||
               loading ||
               processingPhoto
                 ? "#a7bcb4"
                 : "#0b654f",
-            color: "#ffffff",
-            fontSize: "20px",
-            fontWeight: 800,
+            color:
+              "#ffffff",
+            fontSize:
+              "20px",
+            fontWeight:
+              800,
             cursor:
               !imageData ||
               loading ||
@@ -864,32 +1241,61 @@ export default function TestPhotoPage() {
         </button>
 
         {loading && (
-          <p
+          <div
             style={{
-              textAlign: "center",
-              color: "#687a73",
-              marginTop: "14px",
+              textAlign:
+                "center",
+              marginTop:
+                "18px",
+              padding:
+                "15px",
+              background:
+                "#efffeb",
+              borderRadius:
+                "14px",
+              color:
+                "#47655b",
+              lineHeight:
+                1.5,
             }}
           >
-            Analysing the test image. Please
-            don't close this page.
-          </p>
+            <strong>
+              Analysing your test image...
+            </strong>
+
+            <div
+              style={{
+                marginTop:
+                  "5px",
+                fontSize:
+                  "14px",
+              }}
+            >
+              Please keep this page open
+              while the image is being
+              checked.
+            </div>
+          </div>
         )}
 
         {/* DISCLAIMER */}
 
         <p
           style={{
-            marginTop: "30px",
-            color: "#687a73",
-            lineHeight: 1.7,
-            fontSize: "15px",
+            marginTop:
+              "30px",
+            color:
+              "#687a73",
+            lineHeight:
+              1.7,
+            fontSize:
+              "15px",
           }}
         >
           This is a screening support
           service. A reactive self-test
           result is not a confirmed HIV
-          diagnosis and will require
+          diagnosis and requires
           confirmatory testing.
         </p>
       </section>
