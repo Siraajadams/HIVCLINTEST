@@ -18,21 +18,45 @@ interface InterpretationRequest {
   selected_test: TestType;
 }
 
+interface AIInterpretation {
+  result?: unknown;
+  confidence?: unknown;
+  reason?: unknown;
+  test_detected?: unknown;
+  result_window_visible?: unknown;
+  control_line_visible?: unknown;
+  test_line_visible?: unknown;
+  retake_photo?: unknown;
+}
+
 interface InterpretationResponse {
   result: TestResult;
   confidence: Confidence;
   reason: string;
   test_type: string;
+
   test_detected: boolean;
+  result_window_visible: boolean;
+
+  control_line_visible: boolean | null;
+  test_line_visible: boolean | null;
+
   retake_photo: boolean;
 }
 
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_IMAGE_BYTES =
+  8 * 1024 * 1024;
 
 const IMAGE_REGEX =
   /^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\r\n]+)$/;
 
-function isValidResult(value: unknown): value is TestResult {
+// ======================================================
+// VALIDATION
+// ======================================================
+
+function isValidResult(
+  value: unknown
+): value is TestResult {
   return (
     value === "non_reactive" ||
     value === "reactive" ||
@@ -41,7 +65,9 @@ function isValidResult(value: unknown): value is TestResult {
   );
 }
 
-function isValidConfidence(value: unknown): value is Confidence {
+function isValidConfidence(
+  value: unknown
+): value is Confidence {
   return (
     value === "high" ||
     value === "medium" ||
@@ -49,16 +75,42 @@ function isValidConfidence(value: unknown): value is Confidence {
   );
 }
 
-export async function POST(request: NextRequest) {
+function booleanOrNull(
+  value: unknown
+): boolean | null {
+  if (value === true) {
+    return true;
+  }
+
+  if (value === false) {
+    return false;
+  }
+
+  return null;
+}
+
+// ======================================================
+// POST
+// ======================================================
+
+export async function POST(
+  request: NextRequest
+) {
   try {
+    // ==================================================
+    // 1. READ REQUEST
+    // ==================================================
+
     let body: InterpretationRequest;
 
     try {
-      body = await request.json();
+      body =
+        await request.json();
     } catch {
       return NextResponse.json(
         {
-          error: "Invalid request body.",
+          error:
+            "Invalid request body.",
         },
         {
           status: 400,
@@ -66,13 +118,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const image = body?.image;
-    const selectedTest = body?.selected_test;
+    const image =
+      body?.image;
+
+    const selectedTest =
+      body?.selected_test;
+
+    // ==================================================
+    // 2. VALIDATE REQUEST
+    // ==================================================
 
     if (!image) {
       return NextResponse.json(
         {
-          error: "No test image was provided.",
+          error:
+            "No test image was provided.",
         },
         {
           status: 400,
@@ -83,7 +143,8 @@ export async function POST(request: NextRequest) {
     if (!selectedTest) {
       return NextResponse.json(
         {
-          error: "No HIV self-test type was selected.",
+          error:
+            "No HIV self-test type was selected.",
         },
         {
           status: 400,
@@ -92,12 +153,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (
-      selectedTest !== "mylan_atomo" &&
-      selectedTest !== "oraquick"
+      selectedTest !==
+        "mylan_atomo" &&
+      selectedTest !==
+        "oraquick"
     ) {
       return NextResponse.json(
         {
-          error: "Invalid HIV self-test type.",
+          error:
+            "Invalid HIV self-test type.",
         },
         {
           status: 400,
@@ -105,7 +169,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const imageMatch = image.match(IMAGE_REGEX);
+    // ==================================================
+    // 3. VALIDATE IMAGE
+    // ==================================================
+
+    const imageMatch =
+      image.match(
+        IMAGE_REGEX
+      );
 
     if (!imageMatch) {
       return NextResponse.json(
@@ -120,14 +191,22 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const base64Data = imageMatch[2].replace(/\s/g, "");
+      const base64Data =
+        imageMatch[2].replace(
+          /\s/g,
+          ""
+        );
 
-      const imageBytes = Buffer.from(
-        base64Data,
-        "base64"
-      ).byteLength;
+      const imageBytes =
+        Buffer.from(
+          base64Data,
+          "base64"
+        ).byteLength;
 
-      if (imageBytes > MAX_IMAGE_BYTES) {
+      if (
+        imageBytes >
+        MAX_IMAGE_BYTES
+      ) {
         return NextResponse.json(
           {
             error:
@@ -141,7 +220,8 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json(
         {
-          error: "The test photo could not be processed.",
+          error:
+            "The test photo could not be processed.",
         },
         {
           status: 400,
@@ -149,10 +229,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    // ==================================================
+    // 4. OPENAI
+    // ==================================================
+
+    const apiKey =
+      process.env.OPENAI_API_KEY?.trim();
 
     if (!apiKey) {
-      console.error("OPENAI_API_KEY is not configured.");
+      console.error(
+        "OPENAI_API_KEY is not configured."
+      );
 
       return NextResponse.json(
         {
@@ -165,303 +252,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ==================================================
+    // 5. TEST LABEL
+    // ==================================================
+
     const testTypeLabel =
-      selectedTest === "mylan_atomo"
-        ? "Mylan Atomo HIV Self Test"
+      selectedTest ===
+      "mylan_atomo"
+        ? "Mylan / Atomo HIV Self Test"
         : "OraQuick HIV Self-Test";
 
+    // ==================================================
+    // 6. SYSTEM PROMPT
+    // ==================================================
+
     const systemPrompt = `
-You are a visual screening assistant for HIVClinTest.
+You are the visual interpretation component of HIVClinTest.
 
-Your task is ONLY to visually inspect a photograph of an HIV self-test device.
+Your task is ONLY to inspect the visible result window of an HIV self-test.
 
-You are not diagnosing HIV.
+You are NOT diagnosing HIV.
 
-The selected test is:
+The user has selected this test:
 
 ${testTypeLabel}
 
-FIRST determine whether the photograph clearly shows the selected HIV self-test device and its result window.
+==================================================
+PRIMARY RULE
+==================================================
 
-If:
-- no HIV self-test device is visible,
-- the photograph shows a person, room, packaging, or unrelated object,
-- only the test packaging is visible,
-- the result window is not visible,
-- the test is too far away,
-- the test is substantially cropped,
-- the image is blurry,
-- glare prevents interpretation,
-- lighting prevents interpretation,
-- you cannot confidently identify the test result area,
+The ENTIRE physical test device does NOT need to be visible.
 
-return:
+A close-up photograph of the RESULT WINDOW is acceptable and is often preferred.
 
-{
-  "result": "uncertain",
-  "confidence": "low",
-  "reason": "The HIV self-test result window is not clearly visible. Please retake the photo with the complete test device and result window clearly visible.",
-  "test_detected": false,
-  "retake_photo": true
-}
+Do NOT reject an image simply because:
 
-Never guess.
+- the outer test casing is cropped
+- only the result-window portion is visible
+- the photograph is a close-up
+- part of the surrounding plastic is outside the photograph
+- branding is not visible
+- packaging is not visible
 
-CLASSIFICATION:
+The important question is:
 
-non_reactive:
-Use only when the required control indicator is clearly present and the visible pattern corresponds to a non-reactive result for the selected test.
+CAN THE RESULT WINDOW AND THE RELEVANT CONTROL / TEST INDICATORS BE SEEN CLEARLY ENOUGH TO INTERPRET?
 
-reactive:
-Use when the required control indicator is present and the test indicator is also visible in a pattern corresponding to a reactive self-test.
-
-A faint test indicator may still represent a reactive-looking result.
-
-Never say "HIV positive".
-
-Use the terminology "Reactive self-test".
-
-invalid:
-Use when the actual test device is clearly visible but the required control indicator is absent or the device clearly displays an invalid pattern.
-
-Do NOT classify a bad photograph or missing device as invalid.
-
-uncertain:
-Use whenever the visual result cannot be reliably determined.
-
-CONFIDENCE:
-
-high:
-The device, result area and indicators are clearly visible.
-
-medium:
-The result is interpretable but image quality is not ideal.
-
-low:
-There is significant uncertainty.
-
-If confidence is low, use uncertain rather than guessing.
-
-Return ONLY valid JSON.
-
-Required format:
-
-{
-  "result": "non_reactive",
-  "confidence": "high",
-  "reason": "Brief description of the visible test appearance.",
-  "test_detected": true,
-  "retake_photo": false
-}
-`;
-
-    const userPrompt = `
-Examine this photograph of a claimed ${testTypeLabel}.
-
-First confirm that the selected HIV self-test device and result window are actually visible.
-
-Then visually classify the result.
-
-If the device or result window is not clearly visible, return uncertain and request another photograph.
-`;
-
-    const response = await fetch(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        method: "POST",
-
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-
-          messages: [
-            {
-              role: "system",
-              content: systemPrompt,
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: userPrompt,
-                },
-                {
-                  type: "image_url",
-                  image_url: {
-                    url: image,
-                    detail: "high",
-                  },
-                },
-              ],
-            },
-          ],
-
-          temperature: 0,
-          max_tokens: 500,
-
-          response_format: {
-            type: "json_object",
-          },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-
-      console.error(
-        "OpenAI interpretation error:",
-        response.status,
-        errorText
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            "The test image could not be interpreted. Please try again.",
-        },
-        {
-          status: 502,
-        }
-      );
-    }
-
-    const data = await response.json();
-
-    const content = data?.choices?.[0]?.message?.content;
-
-    if (!content) {
-      console.error("OpenAI returned no interpretation.");
-
-      return NextResponse.json(
-        {
-          error:
-            "No interpretation was returned. Please try again.",
-        },
-        {
-          status: 502,
-        }
-      );
-    }
-
-    let interpretation: {
-      result?: unknown;
-      confidence?: unknown;
-      reason?: unknown;
-      test_detected?: unknown;
-      retake_photo?: unknown;
-    };
-
-    try {
-      interpretation = JSON.parse(content);
-    } catch {
-      console.error(
-        "Could not parse interpretation:",
-        content
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            "The interpretation could not be processed. Please try again.",
-        },
-        {
-          status: 502,
-        }
-      );
-    }
-
-    if (
-      !isValidResult(interpretation.result) ||
-      !isValidConfidence(interpretation.confidence) ||
-      typeof interpretation.reason !== "string"
-    ) {
-      console.error(
-        "Invalid interpretation:",
-        interpretation
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            "The interpretation returned an unexpected result.",
-        },
-        {
-          status: 502,
-        }
-      );
-    }
-
-    let result: TestResult = interpretation.result;
-    let confidence: Confidence = interpretation.confidence;
-    let reason = interpretation.reason.trim();
-
-    let testDetected =
-      interpretation.test_detected === true;
-
-    let retakePhoto =
-      interpretation.retake_photo === true;
-
-    if (
-      confidence === "low" &&
-      result !== "uncertain"
-    ) {
-      result = "uncertain";
-      retakePhoto = true;
-
-      reason =
-        "The HIV self-test result is not clear enough to interpret reliably. Please retake the photo.";
-    }
-
-    if (!testDetected) {
-      result = "uncertain";
-      confidence = "low";
-      retakePhoto = true;
-    }
-
-    if (result === "uncertain") {
-      retakePhoto = true;
-    }
-
-    const finalResult: InterpretationResponse = {
-      result,
-      confidence,
-      reason,
-      test_type: testTypeLabel,
-      test_detected: testDetected,
-      retake_photo: retakePhoto,
-    };
-
-    console.log("HIV self-test interpretation completed:", {
-      test_type: finalResult.test_type,
-      result: finalResult.result,
-      confidence: finalResult.confidence,
-      test_detected: finalResult.test_detected,
-      retake_photo: finalResult.retake_photo,
-    });
-
-    return NextResponse.json(finalResult, {
-      status: 200,
-    });
-  } catch (error) {
-    console.error(
-      "Interpret-test API error:",
-      error
-    );
-
-    return NextResponse.json(
-      {
-        error:
-          "The test interpretation service encountered an error. Please try again.",
-      },
-      {
-        status: 500,
-      }
-    );
-  }
-}
+==================================================
+FIRST: IDENTIFY THE RESULT WINDOW
+==================================================
