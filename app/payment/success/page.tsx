@@ -18,19 +18,30 @@ export default async function PaymentSuccessPage({
 
   let paid = false;
   let paymentStatus = "";
+
+  let amountSubtotal = 0;
+  let amountDiscount = 0;
   let amountTotal = 0;
+
   let customerEmail = "";
+  let customerName = "";
+
   let errorMessage = "";
 
   if (!sessionId) {
-    errorMessage = "No Stripe payment session was provided.";
-  } else if (!process.env.STRIPE_SECRET_KEY) {
-    errorMessage = "Stripe has not been configured on the server.";
+    errorMessage =
+      "No Stripe payment session was provided.";
+  } else if (
+    !process.env.STRIPE_SECRET_KEY
+  ) {
+    errorMessage =
+      "Stripe has not been configured on the server.";
   } else {
     try {
-      const stripe = new Stripe(
-        process.env.STRIPE_SECRET_KEY
-      );
+      const stripe =
+        new Stripe(
+          process.env.STRIPE_SECRET_KEY
+        );
 
       const session =
         await stripe.checkout.sessions.retrieve(
@@ -40,15 +51,41 @@ export default async function PaymentSuccessPage({
       paymentStatus =
         session.payment_status || "";
 
+      /*
+       * Stripe can return:
+       *
+       * paid
+       * unpaid
+       * no_payment_required
+       *
+       * no_payment_required is important
+       * if a 100% promotion code is used.
+       */
       paid =
-        session.payment_status === "paid";
+        session.payment_status ===
+          "paid" ||
+        session.payment_status ===
+          "no_payment_required";
+
+      amountSubtotal =
+        session.amount_subtotal || 0;
+
+      amountDiscount =
+        session.total_details
+          ?.amount_discount || 0;
 
       amountTotal =
         session.amount_total || 0;
 
       customerEmail =
-        session.customer_details?.email ||
+        session.customer_details
+          ?.email ||
         session.customer_email ||
+        "";
+
+      customerName =
+        session.customer_details
+          ?.name ||
         "";
     } catch (error) {
       console.error(
@@ -61,10 +98,39 @@ export default async function PaymentSuccessPage({
     }
   }
 
-  const amount =
-    amountTotal > 0
-      ? `R${(amountTotal / 100).toFixed(2)}`
-      : "R250.00";
+  // ==========================================
+  // FORMAT MONEY
+  // ==========================================
+
+  function formatRand(
+    cents: number
+  ) {
+    return `R${(
+      cents / 100
+    ).toFixed(2)}`;
+  }
+
+  const originalAmount =
+    formatRand(
+      amountSubtotal || 25000
+    );
+
+  const discountAmount =
+    formatRand(
+      amountDiscount
+    );
+
+  const finalAmount =
+    formatRand(
+      amountTotal
+    );
+
+  const hasDiscount =
+    amountDiscount > 0;
+
+  // ==========================================
+  // PAGE
+  // ==========================================
 
   return (
     <main
@@ -85,12 +151,15 @@ export default async function PaymentSuccessPage({
           background: "#ffffff",
           borderRadius: "24px",
           padding: "40px",
+          boxSizing: "border-box",
           boxShadow:
             "0 12px 40px rgba(0,0,0,0.08)",
         }}
       >
         {paid ? (
           <>
+            {/* SUCCESS ICON */}
+
             <div
               style={{
                 width: "70px",
@@ -99,7 +168,8 @@ export default async function PaymentSuccessPage({
                 background: "#39ff14",
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "center",
+                justifyContent:
+                  "center",
                 fontSize: "36px",
                 fontWeight: 900,
                 marginBottom: "25px",
@@ -108,11 +178,14 @@ export default async function PaymentSuccessPage({
               ✓
             </div>
 
+            {/* STATUS */}
+
             <p
               style={{
                 margin: "0 0 10px",
                 fontWeight: 800,
-                textTransform: "uppercase",
+                textTransform:
+                  "uppercase",
                 fontSize: "13px",
                 letterSpacing: "1px",
               }}
@@ -123,7 +196,8 @@ export default async function PaymentSuccessPage({
             <h1
               style={{
                 margin: "0 0 15px",
-                fontSize: "36px",
+                fontSize:
+                  "clamp(30px, 7vw, 36px)",
               }}
             >
               Virtual GP request ready
@@ -133,26 +207,144 @@ export default async function PaymentSuccessPage({
               style={{
                 fontSize: "18px",
                 lineHeight: 1.6,
+                color: "#536860",
               }}
             >
-              Your {amount} payment for your
-              Virtual GP consultation has
-              been successfully verified.
+              Your payment has been
+              successfully verified.
             </p>
 
-            {customerEmail && (
-              <p
+            {/* PATIENT */}
+
+            {(customerName ||
+              customerEmail) && (
+              <div
                 style={{
-                  color: "#66756f",
+                  marginTop: "22px",
+                  padding: "18px",
+                  background:
+                    "#f6f7f6",
+                  borderRadius: "14px",
                 }}
               >
-                Payment confirmation:
-                {" "}
-                <strong>
-                  {customerEmail}
-                </strong>
-              </p>
+                {customerName && (
+                  <div
+                    style={{
+                      marginBottom:
+                        "8px",
+                    }}
+                  >
+                    <strong>
+                      Patient:
+                    </strong>{" "}
+                    {customerName}
+                  </div>
+                )}
+
+                {customerEmail && (
+                  <div>
+                    <strong>
+                      Payment email:
+                    </strong>{" "}
+                    {customerEmail}
+                  </div>
+                )}
+              </div>
             )}
+
+            {/* PAYMENT SUMMARY */}
+
+            <div
+              style={{
+                marginTop: "28px",
+                padding: "22px",
+                background: "#f8faf9",
+                border:
+                  "1px solid #dfe7e3",
+                borderRadius: "16px",
+              }}
+            >
+              <h2
+                style={{
+                  margin:
+                    "0 0 20px",
+                  fontSize: "20px",
+                }}
+              >
+                Payment summary
+              </h2>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent:
+                    "space-between",
+                  gap: "20px",
+                  marginBottom:
+                    "12px",
+                }}
+              >
+                <span>
+                  Virtual GP consultation
+                </span>
+
+                <strong>
+                  {originalAmount}
+                </strong>
+              </div>
+
+              {hasDiscount && (
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent:
+                      "space-between",
+                    gap: "20px",
+                    marginBottom:
+                      "12px",
+                    color: "#16803c",
+                  }}
+                >
+                  <span>
+                    Promotion discount
+                  </span>
+
+                  <strong>
+                    -
+                    {discountAmount}
+                  </strong>
+                </div>
+              )}
+
+              <div
+                style={{
+                  borderTop:
+                    "1px solid #dfe7e3",
+                  margin:
+                    "16px 0",
+                }}
+              />
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent:
+                    "space-between",
+                  gap: "20px",
+                  fontSize: "20px",
+                }}
+              >
+                <strong>
+                  Amount paid
+                </strong>
+
+                <strong>
+                  {finalAmount}
+                </strong>
+              </div>
+            </div>
+
+            {/* CARESCRIBER */}
 
             <div
               style={{
@@ -174,21 +366,26 @@ export default async function PaymentSuccessPage({
 
               <p
                 style={{
-                  marginBottom: 0,
+                  margin:
+                    "8px 0 0",
                   lineHeight: 1.6,
                 }}
               >
-                Your consultation can now
-                be submitted to the
-                CareScriber Virtual Consult
-                Inbox.
+                Your payment has been
+                verified and your Virtual
+                GP consultation is ready
+                for submission to the
+                CareScriber Virtual
+                Consult Inbox.
               </p>
             </div>
 
+            {/* STRIPE STATUS */}
+
             <div
               style={{
-                marginTop: "25px",
-                padding: "16px",
+                marginTop: "20px",
+                padding: "15px",
                 background: "#f6f7f6",
                 borderRadius: "12px",
                 fontSize: "14px",
@@ -200,12 +397,48 @@ export default async function PaymentSuccessPage({
                 {paymentStatus}
               </strong>
             </div>
+
+            <p
+              style={{
+                marginTop: "25px",
+                fontSize: "14px",
+                color: "#74847e",
+                lineHeight: 1.6,
+              }}
+            >
+              You may now safely close
+              this page.
+            </p>
           </>
         ) : (
           <>
+            {/* NOT VERIFIED */}
+
+            <div
+              style={{
+                width: "70px",
+                height: "70px",
+                borderRadius: "50%",
+                background: "#fff1f1",
+                display: "flex",
+                alignItems: "center",
+                justifyContent:
+                  "center",
+                fontSize: "32px",
+                fontWeight: 900,
+                color: "#a43b3b",
+                marginBottom: "25px",
+              }}
+            >
+              !
+            </div>
+
             <h1
               style={{
-                marginTop: 0,
+                margin:
+                  "0 0 15px",
+                fontSize:
+                  "clamp(30px, 7vw, 36px)",
               }}
             >
               Payment not verified
@@ -214,11 +447,30 @@ export default async function PaymentSuccessPage({
             <p
               style={{
                 lineHeight: 1.6,
+                color: "#536860",
               }}
             >
               {errorMessage ||
                 "Stripe has not confirmed this payment as paid. Your Virtual GP request has not been submitted."}
             </p>
+
+            {paymentStatus && (
+              <div
+                style={{
+                  marginTop: "20px",
+                  padding: "15px",
+                  background:
+                    "#f6f7f6",
+                  borderRadius: "12px",
+                  fontSize: "14px",
+                }}
+              >
+                Stripe payment status:{" "}
+                <strong>
+                  {paymentStatus}
+                </strong>
+              </div>
+            )}
 
             <Link
               href="/assessment/virtual-gp"
