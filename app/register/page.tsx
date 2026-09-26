@@ -1,3 +1,4 @@
+
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
@@ -17,38 +18,167 @@ const initialForm = {
   consent: false,
 };
 
+type RegistrationForm = typeof initialForm;
+type FormField = keyof RegistrationForm;
+
+// Check the South African ID checksum using Luhn.
+function isValidSAID(id: string): boolean {
+  if (!/^\d{13}$/.test(id)) return false;
+
+  let sum = 0;
+  let doubleDigit = false;
+
+  for (let i = id.length - 1; i >= 0; i--) {
+    let digit = Number(id[i]);
+
+    if (doubleDigit) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+
+    sum += digit;
+    doubleDigit = !doubleDigit;
+  }
+
+  return sum % 10 === 0;
+}
+
+// Extract DOB from a South African ID.
+// Returns YYYY-MM-DD or an empty string.
+function getDOBFromSAID(id: string): string {
+  if (!isValidSAID(id)) return "";
+
+  const yy = Number(id.slice(0, 2));
+  const mm = Number(id.slice(2, 4));
+  const dd = Number(id.slice(4, 6));
+
+  const today = new Date();
+  const currentYear = today.getFullYear();
+
+  const year =
+    2000 + yy <= currentYear
+      ? 2000 + yy
+      : 1900 + yy;
+
+  const dob = new Date(
+    Date.UTC(year, mm - 1, dd)
+  );
+
+  if (
+    dob.getUTCFullYear() !== year ||
+    dob.getUTCMonth() !== mm - 1 ||
+    dob.getUTCDate() !== dd
+  ) {
+    return "";
+  }
+
+  // Do not accept a future date.
+  const todayUTC = Date.UTC(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate()
+  );
+
+  if (dob.getTime() > todayUTC) return "";
+
+  return [
+    year,
+    String(mm).padStart(2, "0"),
+    String(dd).padStart(2, "0"),
+  ].join("-");
+}
+
 export default function RegisterPage() {
   const router = useRouter();
 
-  const [form, setForm] = useState(initialForm);
+  const [form, setForm] =
+    useState<RegistrationForm>(initialForm);
 
-  const canContinue = useMemo(
-    () =>
-      Boolean(
-        form.first_name.trim() &&
-          form.surname.trim() &&
-          form.email.trim() &&
-          form.gender &&
-          form.country &&
-          form.identity_type &&
-          form.identity_number.trim() &&
-          form.date_of_birth &&
-          form.consent
-      ),
-    [form]
-  );
+  const isSAID =
+    form.country === "South Africa" &&
+    form.identity_type === "South African ID";
+
+  const autoDOB = isSAID
+    ? getDOBFromSAID(form.identity_number)
+    : "";
+
+  const invalidSAID =
+    isSAID &&
+    form.identity_number.length === 13 &&
+    !autoDOB;
+
+  const canContinue = useMemo(() => {
+    const basicValid = Boolean(
+      form.first_name.trim() &&
+      form.surname.trim() &&
+      form.email.trim() &&
+      form.gender &&
+      form.country &&
+      form.identity_type &&
+      form.identity_number.trim() &&
+      form.date_of_birth &&
+      form.consent
+    );
+
+    if (!basicValid) return false;
+
+    if (isSAID) {
+      return (
+        Boolean(autoDOB) &&
+        form.date_of_birth === autoDOB
+      );
+    }
+
+    return true;
+  }, [form, isSAID, autoDOB]);
 
   function updateField(
-    field: keyof typeof form,
+    field: FormField,
     value: string | boolean
   ) {
-    setForm((current) => ({
-      ...current,
-      [field]: value,
-      ...(field === "country"
-        ? { identity_type: "" }
-        : {}),
-    }));
+    setForm((current) => {
+      const updated = {
+        ...current,
+        [field]: value,
+      };
+
+      // Reset ID and DOB when country changes.
+      if (field === "country") {
+        updated.identity_type = "";
+        updated.identity_number = "";
+        updated.date_of_birth = "";
+      }
+
+      // Reset ID and DOB when ID type changes.
+      if (field === "identity_type") {
+        updated.identity_number = "";
+        updated.date_of_birth = "";
+      }
+
+      // Automatically extract DOB from SA ID.
+      if (field === "identity_number") {
+        const id = String(value);
+
+        if (
+          updated.country === "South Africa" &&
+          updated.identity_type ===
+            "South African ID"
+        ) {
+          // Accept digits only, maximum 13.
+          const cleanID = id
+            .replace(/\D/g, "")
+            .slice(0, 13);
+
+          updated.identity_number = cleanID;
+          updated.date_of_birth =
+            getDOBFromSAID(cleanID);
+        } else {
+          updated.identity_number = id;
+        }
+      }
+
+      return updated;
+    });
   }
 
   const identityOptions =
@@ -57,7 +187,7 @@ export default function RegisterPage() {
       : ["National ID", "Passport"];
 
   const mobilePlaceholder =
-    {
+    ({
       "South Africa": "+27",
       England: "+44",
       Zimbabwe: "+263",
@@ -65,7 +195,8 @@ export default function RegisterPage() {
       Eswatini: "+268",
       Lesotho: "+266",
       Other: "",
-    }[form.country] || "";
+    } as Record<string, string>)[form.country] ||
+    "";
 
   function handleSubmit(
     event: FormEvent<HTMLFormElement>
@@ -110,7 +241,9 @@ export default function RegisterPage() {
         </Link>
 
         <div className="flow-heading">
-          <p className="eyebrow">Step 1 of 2</p>
+          <p className="eyebrow">
+            Step 1 of 2
+          </p>
 
           <h1 id="registration-title">
             Patient Registration
@@ -135,6 +268,7 @@ export default function RegisterPage() {
 
               <input
                 required
+                autoComplete="given-name"
                 value={form.first_name}
                 onChange={(event) =>
                   updateField(
@@ -153,6 +287,7 @@ export default function RegisterPage() {
 
               <input
                 required
+                autoComplete="family-name"
                 value={form.surname}
                 onChange={(event) =>
                   updateField(
@@ -173,6 +308,7 @@ export default function RegisterPage() {
             <input
               required
               type="email"
+              autoComplete="email"
               placeholder="name@example.com"
               value={form.email}
               onChange={(event) =>
@@ -279,6 +415,18 @@ export default function RegisterPage() {
 
               <input
                 required
+                type="text"
+                inputMode={
+                  isSAID ? "numeric" : "text"
+                }
+                maxLength={
+                  isSAID ? 13 : undefined
+                }
+                placeholder={
+                  isSAID
+                    ? "Enter 13-digit SA ID"
+                    : "Enter identification number"
+                }
                 value={form.identity_number}
                 onChange={(event) =>
                   updateField(
@@ -286,7 +434,18 @@ export default function RegisterPage() {
                     event.target.value
                   )
                 }
+                aria-invalid={invalidSAID}
               />
+
+              {invalidSAID && (
+                <small
+                  role="alert"
+                  style={{ color: "#b91c1c" }}
+                >
+                  Invalid South African ID.
+                  Please check the number.
+                </small>
+              )}
             </label>
           </div>
 
@@ -301,13 +460,36 @@ export default function RegisterPage() {
                 required
                 type="date"
                 value={form.date_of_birth}
+                readOnly={isSAID}
                 onChange={(event) =>
                   updateField(
                     "date_of_birth",
                     event.target.value
                   )
                 }
+                style={
+                  isSAID && autoDOB
+                    ? {
+                        backgroundColor:
+                          "#ecfdf5",
+                        borderColor: "#059669",
+                      }
+                    : undefined
+                }
               />
+
+              {isSAID && (
+                <small
+                  style={{
+                    color: "#047857",
+                    marginTop: "5px",
+                  }}
+                >
+                  {autoDOB
+                    ? "Date of birth automatically populated from your ID."
+                    : "Enter a valid 13-digit South African ID to populate your date of birth."}
+                </small>
+              )}
             </label>
 
             <label className="field">
@@ -315,6 +497,7 @@ export default function RegisterPage() {
 
               <input
                 type="tel"
+                autoComplete="tel"
                 placeholder={mobilePlaceholder}
                 value={form.mobile_number}
                 onChange={(event) =>
