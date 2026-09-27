@@ -299,7 +299,11 @@ export default function VirtualGPPage() {
     setPaymentError("");
 
     const referralDraft = {
-      patient,
+  patient: {
+    ...patient,
+    consent: consent,
+    consent_given: consent,
+  },
 
       consultation_reason: reason,
 
@@ -343,10 +347,14 @@ export default function VirtualGPPage() {
           },
 
           body: JSON.stringify({
-            patient,
+  patient: {
+    ...patient,
+    consent: consent,
+    consent_given: consent,
+  },
 
-            consultation_reason:
-              reason,
+  consultation_reason:
+    reason,
 
             consultation_fee: 250,
 
