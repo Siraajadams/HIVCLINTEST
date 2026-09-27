@@ -101,6 +101,12 @@ export async function POST(
     const patient =
       body?.patient || {};
 
+    // Registration consent must be passed explicitly by the
+    // Virtual GP checkout page. Never infer it from payment.
+    // This flag is a client assertion, not independently verified
+    // evidence of informed consent.
+    const consentGiven = patient.consent_given === true;
+
     const consultationReason =
       clean(
         body?.consultation_reason
@@ -155,6 +161,16 @@ export async function POST(
           success: false,
           error:
             "Patient information is incomplete.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!consentGiven) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Patient consent is required before creating a referral. Please return to registration.",
         },
         { status: 400 }
       );
@@ -228,6 +244,8 @@ export async function POST(
 
       consultation_reason:
         consultationReason,
+
+      consent_given: true,
 
       source:
         "HIVClinTest",
@@ -321,6 +339,11 @@ export async function POST(
 
             consultation_reason:
               consultationReason,
+
+            // Keep consent in the compatibility insert too.
+            // If this column is missing, fail rather than
+            // creating a referral with consent unset.
+            consent_given: true,
 
             source:
               "HIVClinTest",
