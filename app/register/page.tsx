@@ -1,4 +1,3 @@
-
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
@@ -203,18 +202,26 @@ export default function RegisterPage() {
   ) {
     event.preventDefault();
 
-    if (!canContinue) return;
+    if (!canContinue || form.consent !== true) return;
 
     const registration = {
       ...form,
       source: "manual",
+      consent_given: true,
+      consent_recorded_at: new Date().toISOString(),
+      consent_version: "hivclintest-registration-v1",
       created_at: new Date().toISOString(),
     };
 
-    sessionStorage.setItem(
-      "hivclintest_registration",
-      JSON.stringify(registration)
-    );
+    try {
+      sessionStorage.setItem(
+        "hivclintest_registration",
+        JSON.stringify(registration)
+      );
+    } catch {
+      alert("Unable to save registration. Enable browser session storage and try again.");
+      return;
+    }
 
     router.push("/test");
   }
