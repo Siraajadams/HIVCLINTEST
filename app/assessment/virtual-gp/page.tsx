@@ -18,6 +18,8 @@ type Registration = {
   identity_number: string;
   date_of_birth: string;
   mobile_number: string;
+  consent?: boolean;
+  consent_given?: boolean;
 };
 
 type Assessment = {
@@ -140,6 +142,9 @@ export default function VirtualGPPage() {
         const parsed =
           JSON.parse(savedRegistration);
 
+        // Restore only an explicit previously recorded consent.
+        setConsent(parsed.consent === true || parsed.consent_given === true);
+
         setPatient({
           first_name:
             parsed.first_name ?? "",
@@ -240,6 +245,21 @@ export default function VirtualGPPage() {
     });
   }
 
+  function updateConsent(checked: boolean) {
+    setConsent(checked);
+    try {
+      const saved = window.sessionStorage.getItem("hivclintest_registration");
+      const registration = saved ? JSON.parse(saved) : {};
+      window.sessionStorage.setItem(
+        "hivclintest_registration",
+        JSON.stringify({ ...registration, consent: checked, consent_given: checked })
+      );
+    } catch (error) {
+      console.error("Unable to save patient consent:", error);
+      setPaymentError("Unable to save consent. Please try again before payment.");
+    }
+  }
+
   // --------------------------------------------------
   // ASSESSMENT COUNTS
   // --------------------------------------------------
@@ -298,6 +318,20 @@ export default function VirtualGPPage() {
     setPaymentLoading(true);
     setPaymentError("");
 
+    // Ensure the recorded registration consent is current before checkout.
+    try {
+      const saved = window.sessionStorage.getItem("hivclintest_registration");
+      const registration = saved ? JSON.parse(saved) : {};
+      window.sessionStorage.setItem(
+        "hivclintest_registration",
+        JSON.stringify({ ...registration, ...patient, consent: true, consent_given: true })
+      );
+    } catch (error) {
+      setPaymentError("Unable to save consent. Please try again.");
+      setPaymentLoading(false);
+      return;
+    }
+
     const referralDraft = {
   patient: {
     ...patient,
@@ -306,6 +340,8 @@ export default function VirtualGPPage() {
   },
 
       consultation_reason: reason,
+      consent: true,
+      consent_given: true,
 
       consultation_fee: 250,
 
@@ -923,9 +959,7 @@ export default function VirtualGPPage() {
                 type="checkbox"
                 checked={consent}
                 onChange={(event) =>
-                  setConsent(
-                    event.target.checked
-                  )
+                  updateConsent(event.target.checked)
                 }
                 style={{
                   marginTop: "4px",
